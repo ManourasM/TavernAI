@@ -1,28 +1,28 @@
 # start_all.py
-# Run from the repository root that contains the folders:
-# backend/, waiter-ui/, grill-ui/, kitchen-ui/
-#
+# Robust starter script for Windows (opens new cmd windows for each service).
+# - Auto-detects if services live directly under CWD or under a "tavernAI" subfolder.
+# - Uses backend/venv\Scripts\python.exe -m uvicorn if a venv exists there (avoids 'uvicorn' not recognized)
+# - Keeps FORCE_KILL option that will taskkill PIDs using the port (dangerous)
 # Usage: python start_all.py
-# Set FORCE_KILL = True if you want the script to forcibly kill whatever is using the port (dangerous).
 
 import subprocess
 import os
 import socket
 import sys
 import time
-import subprocess
+import shutil
 
 # ---------- CONFIG ----------
-FORCE_KILL = False  # set to True if you want this script to kill processes already using required ports
+FORCE_KILL = False  # set True to forcibly kill processes using the required ports
 SERVICES = {
     "backend": {
         "dir": "backend",
-        "cmd": r'call venv\Scripts\activate && uvicorn app.main:app --reload --host 0.0.0.0 --port 8000',
+        # this cmd will be computed dynamically to prefer backend/venv python
+        "cmd": None,
         "port": 8000
     },
     "waiter": {
         "dir": "waiter-ui",
-        # explicit host + port so Vite will not try other ports
         "cmd": r'npm run dev -- --host 0.0.0.0 --port 5173',
         "port": 5173
     },
@@ -39,7 +39,40 @@ SERVICES = {
 }
 # ---------- /CONFIG ----------
 
-ROOT = os.path.abspath(os.getcwd())
+# Where the script lives (useful when started from another cwd)
+SCRIPT_DIR = os.path.abspath(os.path.dirname(__file__))
+
+def find_repo_root():
+    """
+    Return a directory that contains any of the expected service folders.
+    Strategy:
+      - If CWD contains required folders, use CWD.
+      - Else if script-folder contains required folders, use script-folder.
+      - Else if there is a 'tavernAI' child subfolder in CWD or script-folder, try that.
+      - Fall back to SCRIPT_DIR.
+    """
+    candidates = [os.getcwd(), SCRIPT_DIR]
+    checked = set()
+    for base in candidates:
+        if base in checked: continue
+        checked.add(base)
+        # if base already looks like repo root (has backend folder), return it
+        if all(os.path.isdir(os.path.join(base, SERVICES[s]['dir'])) for s in SERVICES):
+            return base
+        # try child 'tavernAI' or 'backend' siblings
+        tav = os.path.join(base, "tavernAI")
+        if os.path.isdir(tav) and all(os.path.isdir(os.path.join(tav, SERVICES[s]['dir'])) for s in SERVICES):
+            return tav
+    # fallback: search up a few parents from SCRIPT_DIR
+    p = SCRIPT_DIR
+    for _ in range(4):
+        p = os.path.dirname(p)
+        if p and all(os.path.isdir(os.path.join(p, SERVICES[s]['dir'])) for s in SERVICES):
+            return p
+    # last resort: SCRIPT_DIR
+    return SCRIPT_DIR
+
+ROOT = find_repo_root()
 
 def is_port_free(port, host='0.0.0.0'):
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -60,9 +93,7 @@ def find_pids_using_port(port):
     pids = set()
     for line in out.splitlines():
         parts = line.split()
-        # typical line: TCP    0.0.0.0:5173      0.0.0.0:0     LISTENING      1234
         if len(parts) >= 5:
-            proto = parts[0]
             local = parts[1]
             pid = parts[-1]
             if ':' in local:
@@ -87,28 +118,66 @@ def kill_pids(pids):
 
 def start_cmd_in_new_window(command, workdir):
     # Use start "" cmd /k "cd /d <workdir> && <command>"
-    # Make sure to use absolute path
     abs_dir = os.path.abspath(workdir)
-    cmd = f'start "" cmd /k "cd /d {abs_dir} && {command}"'
-    subprocess.Popen(cmd, shell=True)
+    # Escape double quotes in path
+    abs_dir_escaped = abs_dir.replace('"', r'\"')
+    cmd_line = f'start "" cmd /k "cd /d \"{abs_dir_escaped}\" && {command}"'
+    subprocess.Popen(cmd_line, shell=True)
+
+def detect_backend_python(backend_dir):
+    """
+    If backend/venv exists and has a python.exe, return its path.
+    Otherwise return None.
+    """
+    venv_python = os.path.join(backend_dir, "venv", "Scripts", "python.exe")
+    if os.path.isfile(venv_python):
+        return venv_python
+    # also check for .venv
+    venv2 = os.path.join(backend_dir, ".venv", "Scripts", "python.exe")
+    if os.path.isfile(venv2):
+        return venv2
+    # no venv found
+    return None
+
+def prepare_backend_command(backend_dir):
+    # prefer backend venv python if present (avoids relying on activate)
+    py = detect_backend_python(backend_dir)
+    if py:
+        # use -m uvicorn with that python
+        safe_py = f'"{py}"'
+        cmd = f'{safe_py} -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000'
+        return cmd
+    # else fallback to system python that runs this script
+    sys_py = sys.executable or "python"
+    safe_sys_py = f'"{sys_py}"'
+    return f'{safe_sys_py} -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000'
 
 def main():
     print("Starting services with fixed ports (backend:8000, waiter:5173, grill:5174, kitchen:5175)\n")
+    print(f"Detected repository root: {ROOT}\n")
+
+    # fill backend command dynamically
+    for name, info in SERVICES.items():
+        if name == "backend" and not info.get("cmd"):
+            backend_dir = os.path.join(ROOT, info["dir"])
+            info["cmd"] = prepare_backend_command(backend_dir)
+
     for name, info in SERVICES.items():
         port = info.get("port")
         cmd = info.get("cmd")
         d = info.get("dir")
-        print(f"[{name}] dir={d} port={port}")
+        abs_dir = os.path.join(ROOT, d)
+        print(f"[{name}] dir={abs_dir} port={port}")
 
-        if not os.path.isdir(os.path.join(ROOT, d)):
-            print(f"  ⚠️  directory not found: {os.path.join(ROOT, d)} - skipping")
+        if not os.path.isdir(abs_dir):
+            print(f"  ⚠️  directory not found: {abs_dir} - skipping")
+            print("")
             continue
 
         if is_port_free(port):
             print(f"  ✅ port {port} is free, launching...")
-            start_cmd_in_new_window(cmd, os.path.join(ROOT, d))
-            # small delay so multiple 'start' don't race
-            time.sleep(0.4)
+            start_cmd_in_new_window(cmd, abs_dir)
+            time.sleep(0.45)
         else:
             pids = find_pids_using_port(port)
             if pids:
@@ -120,11 +189,10 @@ def main():
                 print(f"  ⚠️  FORCE_KILL is True — attempting to kill PIDs using port {port} ...")
                 kill_pids(pids)
                 time.sleep(0.6)
-                # re-check
                 if is_port_free(port):
                     print(f"  ✅ port {port} now free after killing. launching...")
-                    start_cmd_in_new_window(cmd, os.path.join(ROOT, d))
-                    time.sleep(0.4)
+                    start_cmd_in_new_window(cmd, abs_dir)
+                    time.sleep(0.45)
                 else:
                     print(f"  ❌ still not free after kill attempt. Skipping start for {name}.")
             else:

@@ -187,15 +187,28 @@ export default function App() {
     return s;
   }
 
-  function rootKey(text) {
-    const N = 4;
-    if (!text) return "__unknown__";
-    const cleaned = String(text).replace(/[^\p{L}\p{N}\s]/gu, " ").trim();
-    const words = cleaned.split(/\s+/).filter(Boolean);
-    if (!words.length) return "__unknown__";
-    const parts = words.map(w => w.normalize("NFC").slice(0, N).toLowerCase());
-    return parts.join(" ");
-  }
+function rootKey(text) {
+  const N = 4;
+  if (!text) return "__unknown__";
+
+  // keep only letters/numbers/whitespace
+  const cleaned = String(text).replace(/[^\p{L}\p{N}\s]/gu, " ").trim();
+  const words = cleaned.split(/\s+/).filter(Boolean);
+  if (!words.length) return "__unknown__";
+
+  const parts = words.map(w => {
+    // Normalize to NFD so diacritics are separate combining marks,
+    // then strip all combining marks (Unicode category M) to remove accents.
+    let base = w.normalize("NFD").replace(/\p{M}/gu, "");
+    // normalize final sigma (ς) to standard sigma (σ) to reduce differences
+    base = base.replace(/ς/g, "σ");
+    // slice first N characters and lowercase
+    return base.slice(0, N).toLowerCase();
+  });
+
+  return parts.join(" ");
+}
+
 
   const aggregated = useMemo(() => {
     const map = new Map();
