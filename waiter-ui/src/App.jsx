@@ -338,6 +338,16 @@ export default function App() {
     }
   }
 
+  // small price formatting helper
+  function formatPrice(v) {
+    if (v === null || v === undefined || Number.isNaN(v)) return "—";
+    try {
+      return `${Number(v).toFixed(2)} €`;
+    } catch {
+      return "—";
+    }
+  }
+
   // UI helpers
   const tableButtons = [];
   for (let i = 1; i <= 17; i++) {
@@ -356,6 +366,15 @@ export default function App() {
   const currentOrderItems = currentEntry ? (Array.isArray(currentEntry.items) ? currentEntry.items : []) : [];
 
   const isMobile = typeof window !== "undefined" && window.innerWidth < 700;
+
+  // compute subtotal of known line totals for non-cancelled items
+  const subtotalKnown = currentOrderItems.reduce((acc, it) => {
+    if (!it) return acc;
+    if (it.status === "cancelled") return acc;
+    if (typeof it.line_total === "number") return acc + it.line_total;
+    return acc;
+  }, 0);
+  const hasUnknownPrices = currentOrderItems.some(it => it && it.status !== "cancelled" && (it.line_total === null || it.line_total === undefined));
 
   return (
     <div style={{ padding: 16, fontFamily: "sans-serif" }}>
@@ -439,30 +458,52 @@ export default function App() {
             {currentOrderItems.length === 0 ? (
               <div style={{ color: "#666" }}>Δεν υπάρχουν παραγγελίες</div>
             ) : (
-              currentOrderItems.map(item => (
-                <div key={item.id} style={{ display: "flex", justifyContent: "space-between", padding: 6, borderBottom: "1px dashed #eee" }}>
-                  <div style={{ textDecoration: (item.status === "done" || item.status === "cancelled") ? "line-through" : "none", fontSize: 18 }}>
-                    {item.text ?? item.name ?? "(άγνωστο)"}
+              currentOrderItems.map(item => {
+                const qty = (item && item.qty) ? item.qty : 1;
+                const displayName = (item && item.name) ? item.name : (item && item.text) ? item.text : "(άγνωστο)";
+                const isStruck = item && (item.status === "done" || item.status === "cancelled");
+                return (
+                  <div key={item.id} style={{ display: "flex", justifyContent: "space-between", padding: 6, borderBottom: "1px dashed #eee" }}>
+                    <div style={{ textDecoration: isStruck ? "line-through" : "none", fontSize: 18 }}>
+                      {qty > 1 ? `${qty}× ` : ""}{displayName}
+                    </div>
+                    <div style={{ fontSize: 12, color: "#666", minWidth: 120, textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
+                      <div>
+                        {item.status === "pending" ? "εκκρεμεί" : (item.status === "done" ? "έτοιμο" : "ακυρωμένο")}
+                      </div>
+                      <div style={{ marginTop: 4 }}>
+                        { (item && (item.unit_price !== null && item.unit_price !== undefined) && (item.line_total !== null && item.line_total !== undefined)) ? (
+                          <div style={{ fontSize: 12 }}>
+                            {qty}× {formatPrice(item.unit_price)} = {formatPrice(item.line_total)}
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: 12, color: "#999" }}>—</div>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                  <div style={{ fontSize: 12, color: "#666", minWidth: 80, textAlign: "right" }}>
-                    {item.status === "pending" ? "εκκρεμεί" : (item.status === "done" ? "έτοιμο" : "ακυρωμένο")}
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
 
           <textarea value={text} onChange={e => setText(e.target.value)} rows={10} style={{ width: "100%", fontSize: 18, padding: 12 }} placeholder="Γράψτε την παραγγελία — κάθε πιάτο σε νέα γραμμή" />
 
-          <div style={{ display: "flex", gap: 12, marginTop: 12 }}>
+          <div style={{ display: "flex", gap: 12, marginTop: 12, alignItems: "center" }}>
             <button onClick={sendOrEdit} style={{ padding: "12px 24px", fontSize: 18, backgroundColor: "#007bff", color: "#fff", border: "none", borderRadius: 8 }}>
               {(currentOrderItems.length) ? "ΕΠΕΞΕΡΓΑΣΙΑ" : "ΑΠΟΣΤΟΛΗ"}
             </button>
 
             {currentOrderItems.length > 0 && currentOrderItems.every(it => it && (it.status === "done" || it.status === "cancelled")) ? (
-              <button onClick={finalizeTable} style={{ padding: "12px 24px", fontSize: 18, backgroundColor: "#4a90e2", color: "#fff", border: "none", borderRadius: 8 }}>
-                ΟΛΟΚΛΗΡΩΣΗ ΤΡΑΠΕΖΙΟΥ
-              </button>
+              <>
+                <div style={{ marginLeft: 8, fontSize: 18, fontWeight: 700, color: "#fff", background: "#4a90e2", padding: "8px 12px", borderRadius: 8 }}>
+                  Σύνολο: {formatPrice(subtotalKnown)} {hasUnknownPrices ? <span style={{ fontSize: 12, color: "#f6f6f6", marginLeft: 8 }}>(κάποια είδη χωρίς τιμή)</span> : null}
+                </div>
+
+                <button onClick={finalizeTable} style={{ padding: "12px 24px", fontSize: 18, backgroundColor: "#4a90e2", color: "#fff", border: "none", borderRadius: 8 }}>
+                  ΟΛΟΚΛΗΡΩΣΗ ΤΡΑΠΕΖΙΟΥ
+                </button>
+              </>
             ) : null }
 
             <button onClick={closeTable} style={{ padding: "12px 24px", fontSize: 18 }}>

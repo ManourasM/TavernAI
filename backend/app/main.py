@@ -8,8 +8,9 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 from fastapi.middleware.cors import CORSMiddleware
 import re
+import unicodedata
 
-from app.nlp import classify_order  # Greek-capable classifier
+from app.nlp import classify_order, MENU_ITEMS  # Greek-capable classifier + menu lookup
 
 app = FastAPI(title="Tavern Ordering Backend (MVP)")
 
@@ -41,16 +42,248 @@ class SubmitOrder(BaseModel):
 
 
 # ---------- Helper utilities ----------
+def _normalize_text_for_match(s: str) -> str:
+    """
+    Normalize a dish line for matching:
+    - lowercase
+    - remove accents/diacritics
+    - remove punctuation except Greek letters/numbers
+    - collapse whitespace
+    """
+    if not s:
+        return ""
+    # strip accents
+    nfkd = unicodedata.normalize("NFD", str(s))
+    no_accents = "".join(ch for ch in nfkd if not unicodedata.combining(ch))
+    t = no_accents.strip().lower()
+    # keep Greek letters, latin, digits and spaces
+    t = re.sub(r"[^\w\sάέήίόύώϊϋΐΰΆΈΉΊΌΎΏΑ-Ωα-ω0-9]", " ", t)
+    t = re.sub(r"\s+", " ", t)
+    return t.strip()
+
+
+def _strip_accents(s: str) -> str:
+    if not s:
+        return ""
+    nfkd = unicodedata.normalize("NFD", s)
+    return "".join(ch for ch in nfkd if not unicodedata.combining(ch))
+
+
+def _parse_qty_and_name(line_text: str):
+    """
+    Parse leading quantity and return (qty:int, name:str).
+    If no leading number is found assume qty=1 and return original text as name.
+    Example:
+      "2 Σουβλάκι χοιρινό" -> (2, "Σουβλάκι χοιρινό")
+      "Σουβλάκι" -> (1, "Σουβλάκι")
+    """
+    if not line_text or not str(line_text).strip():
+        return 1, ""
+    s = str(line_text).strip()
+    m = re.match(r"^\s*(\d+)\s+(.+)$", s)
+    if m:
+        try:
+            qty = int(m.group(1))
+            name = m.group(2).strip()
+            if qty <= 0:
+                qty = 1
+            return qty, name
+        except Exception:
+            return 1, s
+    return 1, s
+
+
+def _levenshtein(a: str, b: str) -> int:
+    """
+    Basic Levenshtein distance (iterative, O(len(a)*len(b))). Implemented here to avoid extra deps.
+    """
+    if a == b:
+        return 0
+    if len(a) == 0:
+        return len(b)
+    if len(b) == 0:
+        return len(a)
+
+    # ensure a is the shorter
+    if len(a) > len(b):
+        a, b = b, a
+
+    previous_row = list(range(len(a) + 1))
+    for i, cb in enumerate(b, start=1):
+        current_row = [i]
+        for j, ca in enumerate(a, start=1):
+            insertions = previous_row[j] + 1
+            deletions = current_row[j - 1] + 1
+            substitutions = previous_row[j - 1] + (0 if ca == cb else 1)
+            current_row.append(min(insertions, deletions, substitutions))
+        previous_row = current_row
+    return previous_row[-1]
+
+
+def _tokenize(s: str) -> List[str]:
+    """Split normalized string into tokens, dropping very short tokens."""
+    if not s:
+        return []
+    parts = [tok for tok in s.split() if len(tok) > 1]
+    return parts
+
+
+def _find_menu_price_for_name(name: str):
+    """
+    Fuzzy match an order-line name against MENU_ITEMS and return (unit_price_float_or_None, matched_menu_id_or_None).
+    Strategy (prefix-aware):
+      - normalize both input and menu item names with _normalize_text_for_match
+      - substring matches are treated as very strong signals
+      - do per-token scoring: if an order token matches the start of a menu token (startswith) score = 1.0
+        otherwise use normalized token-level Levenshtein ratio
+      - final score is the average of per-order-token best token matches, combined with a full-string
+        levenshtein ratio as a secondary signal. Preference is given to longer menu entries when scores tie.
+    """
+    if not name:
+        return None, None
+
+    norm = _normalize_text_for_match(name)
+    if not norm:
+        return None, None
+
+    # Build normalized menu mapping (normalize menu entry names)
+    normalized_menu = {}
+    for k, entry in MENU_ITEMS.items():
+        entry_name = entry.get("name") or ""
+        nk = _normalize_text_for_match(entry_name)
+        if not nk:
+            nk = _normalize_text_for_match(k)
+        # if duplicates appear, keep the first — we'll use length-breaker later if needed
+        normalized_menu.setdefault(nk, entry)
+
+    best_key = None
+    best_score = 0.0
+
+    # pre-tokenize the order name
+    order_tokens = _tokenize(norm)
+    # if no tokens, fallback to whole-string only
+    if not order_tokens:
+        order_tokens = [norm]
+
+    for menu_norm, entry in normalized_menu.items():
+        if not menu_norm:
+            continue
+
+        # immediate strong signal: substring either way
+        if menu_norm in norm or norm in menu_norm:
+            score = 1.0
+        else:
+            menu_tokens = _tokenize(menu_norm) or [menu_norm]
+
+            # For each order token, find the best matching menu token score:
+            # - startswith (prefix) gets 1.0 (strong)
+            # - else compute token-level levenshtein ratio (1 - dist / max_len)
+            per_token_scores = []
+            for ot in order_tokens:
+                best_tok_score = 0.0
+                for mt in menu_tokens:
+                    if mt.startswith(ot) or ot.startswith(mt):
+                        # prefix or reverse-prefix match -> treat as exact
+                        tok_score = 1.0
+                    else:
+                        max_l = max(len(ot), len(mt))
+                        if max_l == 0:
+                            tok_score = 0.0
+                        else:
+                            d = _levenshtein(ot, mt)
+                            tok_score = 1.0 - (d / max_l)
+                            if tok_score < 0:
+                                tok_score = 0.0
+                    if tok_score > best_tok_score:
+                        best_tok_score = tok_score
+                per_token_scores.append(best_tok_score)
+
+            # average per-order-token score (so short user token that matches prefix boosts score)
+            token_match_score = sum(per_token_scores) / len(per_token_scores) if per_token_scores else 0.0
+
+            # also compute full-string levenshtein ratio as secondary signal
+            max_len = max(len(norm), len(menu_norm))
+            if max_len > 0:
+                full_dist = _levenshtein(norm, menu_norm)
+                full_lev_ratio = 1.0 - (full_dist / max_len)
+                if full_lev_ratio < 0:
+                    full_lev_ratio = 0.0
+            else:
+                full_lev_ratio = 0.0
+
+            # prefix-length bonus: length of common prefix between strings normalized
+            common_pref = 0
+            for a_ch, b_ch in zip(norm, menu_norm):
+                if a_ch == b_ch:
+                    common_pref += 1
+                else:
+                    break
+            prefix_bonus = (common_pref / max_len) if max_len > 0 else 0.0
+
+            # Combine scores — token match is primary, full-string and prefix bonus secondary.
+            score = (0.65 * token_match_score) + (0.25 * full_lev_ratio) + (0.10 * prefix_bonus)
+
+        # prefer longer menu_norm (more specific) when scores tie closely
+        if score > best_score or (abs(score - best_score) < 1e-6 and len(menu_norm) > (len(best_key) if best_key else 0)):
+            best_score = score
+            best_key = menu_norm
+
+    # threshold to avoid false positives; adjust if needed
+    THRESHOLD = 0.50
+    if best_key and best_score >= THRESHOLD:
+        entry = normalized_menu.get(best_key)
+        if entry:
+            price = entry.get("price")
+            return (float(price) if (price is not None) else None, entry.get("id"))
+    return None, None
+
+
 def _make_item(line_text: str, table: int, category: str) -> Dict:
-    """Create a standardized item object for storage & messages."""
+    """Create a standardized item object for storage & messages.
+
+    Now includes:
+      - qty: parsed leading integer quantity (default 1)
+      - unit_price: looked up from MENU_ITEMS when possible (None otherwise)
+      - line_total: qty * unit_price (None if unit_price is None)
+      - name: parsed name without quantity prefix (for easier display/matching)
+    """
+    qty, parsed_name = _parse_qty_and_name(line_text)
+    unit_price, matched_id = _find_menu_price_for_name(parsed_name)
+
+    line_total = None
+    if unit_price is not None:
+        try:
+            line_total = round(qty * float(unit_price), 2)
+        except Exception:
+            line_total = None
+
     return {
         "id": str(uuid4()),
         "table": table,
         "text": line_text.strip(),
+        "name": parsed_name,
+        "qty": qty,
+        "unit_price": unit_price,  # float or None
+        "line_total": line_total,  # float or None
+        "menu_id": matched_id,
         "category": category,  # 'kitchen'|'grill'|'drinks'
         "status": "pending",  # pending / done / cancelled
         "created_at": datetime.utcnow().isoformat() + "Z",
     }
+
+
+def _meta_for(table_key):
+    """
+    Safely return table meta for a table id that may be an int or None (or other).
+    This avoids type-checker complaints where callers might have 'int | None'.
+    """
+    try:
+        if table_key is None:
+            return {"people": None, "bread": False}
+        # coerce to int if possible
+        return table_meta.get(int(table_key), {"people": None, "bread": False})
+    except Exception:
+        return {"people": None, "bread": False}
 
 
 async def broadcast_to_station(station: str, message: Dict):
@@ -79,21 +312,6 @@ def _pending_items_only(table_items: List[Dict]) -> List[Dict]:
     pending = [it for it in table_items if it.get("status") == "pending"]
     pending.sort(key=lambda x: x["created_at"])
     return pending
-
-
-def _normalize_text_for_match(s: str) -> str:
-    """
-    Normalize a dish line for matching:
-    - lowercase
-    - remove punctuation except Greek letters/numbers
-    - collapse whitespace
-    """
-    if not s:
-        return ""
-    t = s.strip().lower()
-    t = re.sub(r"[^\w\sάέήίόύώϊϋΐΰΆΈΉΊΌΎΏΑ-Ωα-ω0-9]", "", t)
-    t = re.sub(r"\s+", " ", t)
-    return t
 
 
 # ---------- Config endpoint (convenience for frontends) ----------
@@ -126,14 +344,15 @@ async def submit_order(payload: SubmitOrder):
             created_items.append(item)
 
         # Broadcast each new item to its station; include table meta in the message
+        meta_for_table = _meta_for(payload.table)
         for item in created_items:
-            msg = {"action": "new", "item": item, "meta": table_meta.get(payload.table, {})}
+            msg = {"action": "new", "item": item, "meta": meta_for_table}
             target_station = "grill" if item["category"] == "grill" else "kitchen"
             asyncio.create_task(broadcast_to_station(target_station, msg))
 
         # Notify waiter clients about each new item & meta
         for item in created_items:
-            asyncio.create_task(broadcast_to_station("waiter", {"action": "update", "item": item, "meta": table_meta.get(payload.table, {})}))
+            asyncio.create_task(broadcast_to_station("waiter", {"action": "update", "item": item, "meta": meta_for_table}))
 
     return {"status": "ok", "created": created_items}
 
@@ -179,9 +398,9 @@ async def replace_table_order(table: int, payload: SubmitOrder):
 
         # Save table meta
         table_meta[table] = {"people": payload.people, "bread": bool(payload.bread)}
+        msg_meta = {"action": "meta_update", "table": table, "meta": table_meta[table]}
 
         # Broadcast meta update to all stations and waiter
-        msg_meta = {"action": "meta_update", "table": table, "meta": table_meta[table]}
         asyncio.create_task(broadcast_to_station("kitchen", msg_meta))
         asyncio.create_task(broadcast_to_station("grill", msg_meta))
         asyncio.create_task(broadcast_to_station("waiter", msg_meta))
@@ -222,20 +441,21 @@ async def replace_table_order(table: int, payload: SubmitOrder):
             msg = {"action": "delete", "item_id": it["id"], "table": table}
             target_station = "grill" if it["category"] == "grill" else "kitchen"
             asyncio.create_task(broadcast_to_station(target_station, msg))
-            asyncio.create_task(broadcast_to_station("waiter", {"action": "update", "item": it, "meta": table_meta.get(table, {})}))
+            asyncio.create_task(broadcast_to_station("waiter", {"action": "update", "item": it, "meta": _meta_for(table)}))
 
         # Broadcast new items (with meta) and notify waiter
+        meta_for_table = _meta_for(table)
         for it in new_items_created:
             target_station = "grill" if it["category"] == "grill" else "kitchen"
-            asyncio.create_task(broadcast_to_station(target_station, {"action": "new", "item": it, "meta": table_meta.get(table, {})}))
-            asyncio.create_task(broadcast_to_station("waiter", {"action": "update", "item": it, "meta": table_meta.get(table, {})}))
+            asyncio.create_task(broadcast_to_station(target_station, {"action": "new", "item": it, "meta": meta_for_table}))
+            asyncio.create_task(broadcast_to_station("waiter", {"action": "update", "item": it, "meta": meta_for_table}))
 
         # Broadcast update for remaining pending items (kept + new) so stations refresh table header
         remaining_pending = [it for it in orders_by_table.get(table, []) if it["status"] == "pending"]
         for it in remaining_pending:
             target_station = "grill" if it["category"] == "grill" else "kitchen"
-            asyncio.create_task(broadcast_to_station(target_station, {"action": "update", "item": it, "meta": table_meta.get(table, {})}))
-            asyncio.create_task(broadcast_to_station("waiter", {"action": "update", "item": it, "meta": table_meta.get(table, {})}))
+            asyncio.create_task(broadcast_to_station(target_station, {"action": "update", "item": it, "meta": meta_for_table}))
+            asyncio.create_task(broadcast_to_station("waiter", {"action": "update", "item": it, "meta": meta_for_table}))
 
     return {"status": "ok", "replaced_count": len(new_items_created), "kept_count": len(kept_items), "cancelled_count": len(cancelled_items)}
 
@@ -255,7 +475,7 @@ async def cancel_item(table: int, item_id: str):
                 target_station = "grill" if it["category"] == "grill" else "kitchen"
                 asyncio.create_task(broadcast_to_station(target_station, msg))
                 # also notify waiter (so UI can update and show cancelled)
-                asyncio.create_task(broadcast_to_station("waiter", {"action": "update", "item": it, "meta": table_meta.get(table, {})}))
+                asyncio.create_task(broadcast_to_station("waiter", {"action": "update", "item": it, "meta": _meta_for(table)}))
                 break
         if not found:
             raise HTTPException(status_code=404, detail="item not found or not pending")
@@ -264,7 +484,7 @@ async def cancel_item(table: int, item_id: str):
         pending_left = [x for x in orders_by_table.get(table, []) if x["status"] == "pending"]
         if not pending_left:
             # Inform clients that pending are gone (meta remains until waiter finalizes)
-            meta_msg = {"action": "meta_update", "table": table, "meta": table_meta.get(table, {"people": None, "bread": False})}
+            meta_msg = {"action": "meta_update", "table": table, "meta": _meta_for(table)}
             asyncio.create_task(broadcast_to_station("waiter", meta_msg))
             asyncio.create_task(broadcast_to_station("kitchen", meta_msg))
             asyncio.create_task(broadcast_to_station("grill", meta_msg))
@@ -291,10 +511,10 @@ async def mark_item_done(item_id: str):
             raise HTTPException(status_code=404, detail="item not found or not pending")
 
         # notify both kitchen/grill about status change
-        asyncio.create_task(broadcast_to_all({"action": "update", "item": found, "meta": table_meta.get(found_table, {})}))
+        asyncio.create_task(broadcast_to_all({"action": "update", "item": found, "meta": _meta_for(found_table)}))
 
         # also notify waiter: update & short notification
-        asyncio.create_task(broadcast_to_station("waiter", {"action": "update", "item": found, "meta": table_meta.get(found_table, {})}))
+        asyncio.create_task(broadcast_to_station("waiter", {"action": "update", "item": found, "meta": _meta_for(found_table)}))
         # Greek notification: e.g. "ετοιμα <text> τραπέζι <table>"
         try:
             note_text = f"ετοιμα {found.get('text','')} τραπέζι {found.get('table')}"
@@ -305,7 +525,7 @@ async def mark_item_done(item_id: str):
         # If no pending left, notify clients (meta remains until waiter finalizes)
         pending_left = [x for x in orders_by_table.get(found_table, []) if x.get("status") == "pending"]
         if not pending_left:
-            meta_msg = {"action": "meta_update", "table": found_table, "meta": table_meta.get(found_table, {"people": None, "bread": False})}
+            meta_msg = {"action": "meta_update", "table": found_table, "meta": _meta_for(found_table)}
             asyncio.create_task(broadcast_to_station("waiter", meta_msg))
             asyncio.create_task(broadcast_to_station("kitchen", meta_msg))
             asyncio.create_task(broadcast_to_station("grill", meta_msg))
@@ -375,7 +595,7 @@ async def station_ws(websocket: WebSocket, station: str):
                     if it["status"] == "pending":
                         if (station == "grill" and it["category"] == "grill") or (station == "kitchen" and it["category"] != "grill"):
                             item_copy = dict(it)
-                            item_copy["meta"] = table_meta.get(it["table"], {"people": None, "bread": False})
+                            item_copy["meta"] = _meta_for(it["table"])
                             pending.append(item_copy)
             pending.sort(key=lambda x: x["created_at"])
             await websocket.send_json({"action": "init", "items": pending})
@@ -395,6 +615,13 @@ async def station_ws(websocket: WebSocket, station: str):
                     await websocket.send_json({"action": "finalize_failed", "table": None, "reason": "missing_table"})
                     continue
 
+                # Ensure we have an int table id (websocket JSON may provide string/number)
+                try:
+                    table_to_finalize = int(table_to_finalize)
+                except Exception:
+                    await websocket.send_json({"action": "finalize_failed", "table": table_to_finalize, "reason": "invalid_table"})
+                    continue
+
                 async with lock:
                     # Confirm table exists
                     if table_to_finalize not in orders_by_table:
@@ -407,7 +634,7 @@ async def station_ws(websocket: WebSocket, station: str):
                         # refuse finalize, include number of pending items
                         await websocket.send_json({"action": "finalize_failed", "table": table_to_finalize, "pending": len(pending_left), "reason": "items_pending"})
                         # also send an updated set of pending items back so waiter UI can refresh
-                        pending_items = [dict(it, meta=table_meta.get(it["table"], {"people": None, "bread": False})) for table_items in orders_by_table.values() for it in table_items if it["status"] == "pending"]
+                        pending_items = [dict(it, meta=_meta_for(it["table"])) for table_items in orders_by_table.values() for it in table_items if it["status"] == "pending"]
                         await websocket.send_json({"action": "init", "items": pending_items})
                         continue
 
@@ -460,7 +687,7 @@ async def station_ws(websocket: WebSocket, station: str):
                             break
                     if found_item:
                         # broadcast update (include meta for convenience)
-                        asyncio.create_task(broadcast_to_all({"action": "update", "item": found_item, "meta": table_meta.get(found_table, {})}))
+                        asyncio.create_task(broadcast_to_all({"action": "update", "item": found_item, "meta": _meta_for(found_table)}))
 
                         # also notify waiter with short notification text
                         try:
