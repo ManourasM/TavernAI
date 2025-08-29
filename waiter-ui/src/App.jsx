@@ -27,6 +27,9 @@ export default function App() {
   const [people, setPeople] = useState("");
   const [bread, setBread] = useState(false);
 
+  // debug panel toggle
+  const [debugEnabled, setDebugEnabled] = useState(false);
+
   // notifications: newest first
   const [notifications, setNotifications] = useState([]); // {id, text}
   const timersRef = useRef({}); // map id -> timeoutId
@@ -348,37 +351,60 @@ export default function App() {
     }
   }
 
-  // UI helpers
-  const tableButtons = [];
-  for (let i = 1; i <= 17; i++) {
-    const entry = ordersMap[String(i)] || { items: [], meta: { people: null, bread: false } };
-    const items = Array.isArray(entry.items) ? entry.items : [];
-    const hasPending = items.some(it => it && it.status === "pending");
-    const hasAny = items.length > 0;
-    const allDone = hasAny && items.every(it => it && (it.status === "done" || it.status === "cancelled"));
-    let color = "#5cb85c";
-    if (allDone) color = "#4a90e2";
-    else if (hasPending) color = "#d9534f";
-    tableButtons.push(<TableButton key={i} n={i} color={color} onClick={openTable} />);
+  // local lightweight parser for debug only
+  function parseQuantityAndUnit(text) {
+    if (!text) return { qty: 1, isWeight: false, weight_kg: null, unitRaw: null };
+    const s = String(text).trim().toLowerCase();
+    // immediate no-space unit
+    let m = s.match(/^\s*([0-9]+(?:[.,][0-9]+)?)(kg|κ|κιλ|κιλό|g|γρ|gr)/i);
+    if (m && m[1]) {
+      const num = Number(String(m[1]).replace(",", "."));
+      const unit = (m[2] || "").toLowerCase();
+      if (unit === "kg" || unit === "κ" || unit === "κιλ" || unit === "κιλό") return { qty: 1, isWeight: true, weight_kg: num, unitRaw: unit };
+      if (unit === "g" || unit === "γρ" || unit === "gr") return { qty: 1, isWeight: true, weight_kg: num / 1000, unitRaw: unit };
+    }
+    // grams anywhere
+    m = s.match(/([0-9]+(?:[.,][0-9]+)?)\s*(g|γρ|gr)\b/i);
+    if (m && m[1]) {
+      const grams = Number(String(m[1]).replace(",", "."));
+      return { qty: 1, isWeight: true, weight_kg: grams / 1000, unitRaw: m[2] };
+    }
+    // leading count
+    m = s.match(/^\s*([0-9]+)(?:\b|\s+)/);
+    if (m && m[1]) {
+      const n = Number(m[1]);
+      return { qty: Number.isFinite(n) ? n : 1, isWeight: false, weight_kg: null, unitRaw: null };
+    }
+    return { qty: 1, isWeight: false, weight_kg: null, unitRaw: null };
   }
 
+  // compute subtotal of known line totals for non-cancelled items (trust server-provided if present)
   const currentEntry = selectedTable ? (ordersMap[String(selectedTable)] || { items: [], meta: { people: null, bread: false } }) : null;
   const currentOrderItems = currentEntry ? (Array.isArray(currentEntry.items) ? currentEntry.items : []) : [];
 
-  const isMobile = typeof window !== "undefined" && window.innerWidth < 700;
-
-  // compute subtotal of known line totals for non-cancelled items
   const subtotalKnown = currentOrderItems.reduce((acc, it) => {
     if (!it) return acc;
     if (it.status === "cancelled") return acc;
+    // prefer server-provided line_total
     if (typeof it.line_total === "number") return acc + it.line_total;
     return acc;
   }, 0);
-  const hasUnknownPrices = currentOrderItems.some(it => it && it.status !== "cancelled" && (it.line_total === null || it.line_total === undefined));
+  const hasUnknownPrices = currentOrderItems.some(it => {
+    if (!it) return false;
+    if (it.status === "cancelled") return false;
+    if (typeof it.line_total === "number") return false;
+    return true;
+  });
+
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 700;
 
   return (
     <div style={{ padding: 16, fontFamily: "sans-serif" }}>
-      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center" }}>
+        <label style={{ color: "#666", fontSize: 14 }}>
+          Debug
+          <input type="checkbox" checked={debugEnabled} onChange={e => setDebugEnabled(e.target.checked)} style={{ marginLeft: 6 }} />
+        </label>
         <button onClick={toggleMute} style={{ padding: "6px 10px", borderRadius: 8, border: "none", cursor: "pointer" }}>
           {muted ? "🔇" : "🔊"}
         </button>
@@ -435,7 +461,17 @@ export default function App() {
         <>
           <h1 style={{ textAlign: "center" }}>ΤΡΑΠΕΖΙΑ</h1>
           <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center" }}>
-            {tableButtons}
+            {Array.from({ length: 17 }).map((_, i) => i + 1).map(i => {
+              const entry = ordersMap[String(i)] || { items: [], meta: { people: null, bread: false } };
+              const items = Array.isArray(entry.items) ? entry.items : [];
+              const hasPending = items.some(it => it && it.status === "pending");
+              const hasAny = items.length > 0;
+              const allDone = hasAny && items.every(it => it && (it.status === "done" || it.status === "cancelled"));
+              let color = "#5cb85c";
+              if (allDone) color = "#4a90e2";
+              else if (hasPending) color = "#d9534f";
+              return <TableButton key={i} n={i} color={color} onClick={openTable} />;
+            })}
           </div>
         </>
       ) : (
@@ -459,28 +495,70 @@ export default function App() {
               <div style={{ color: "#666" }}>Δεν υπάρχουν παραγγελίες</div>
             ) : (
               currentOrderItems.map(item => {
-                const qty = (item && item.qty) ? item.qty : 1;
                 const displayName = (item && item.name) ? item.name : (item && item.text) ? item.text : "(άγνωστο)";
                 const isStruck = item && (item.status === "done" || item.status === "cancelled");
+
+                // Prefer server-provided pricing/weight
+                const serverUnitPrice = item.unit_price !== undefined ? item.unit_price : null;
+                const serverLineTotal = item.line_total !== undefined ? item.line_total : null;
+                const serverWeight = item.weight_kg !== undefined ? item.weight_kg : null;
+                const serverQty = item.qty !== undefined ? item.qty : 1;
+
+                let priceLine = null;
+                if (serverLineTotal != null && serverUnitPrice != null) {
+                  if (serverWeight != null) {
+                    const weightLabel = (serverWeight < 1) ? `${Math.round(serverWeight * 1000)}g` : `${Number(serverWeight % 1 === 0 ? serverWeight : Number(serverWeight.toFixed(2)))}kg`;
+                    priceLine = `${weightLabel} × ${Number(serverUnitPrice).toFixed(2)}€/kg = ${Number(serverLineTotal).toFixed(2)}€`;
+                  } else {
+                    priceLine = `${serverQty}× ${Number(serverUnitPrice).toFixed(2)}€ = ${Number(serverLineTotal).toFixed(2)}€`;
+                  }
+                } else if (serverLineTotal != null && serverUnitPrice == null) {
+                  // server gave a line total but not unit price
+                  priceLine = `= ${Number(serverLineTotal).toFixed(2)}€`;
+                } else {
+                  // fallback: compute nothing (server is authoritative)
+                  priceLine = "—";
+                }
+
+                // local parse for debug comparison
+                const parsedLocal = parseQuantityAndUnit(item.text || item.name || "");
+
                 return (
-                  <div key={item.id} style={{ display: "flex", justifyContent: "space-between", padding: 6, borderBottom: "1px dashed #eee" }}>
-                    <div style={{ textDecoration: isStruck ? "line-through" : "none", fontSize: 18 }}>
-                      {qty > 1 ? `${qty}× ` : ""}{displayName}
-                    </div>
-                    <div style={{ fontSize: 12, color: "#666", minWidth: 120, textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
-                      <div>
-                        {item.status === "pending" ? "εκκρεμεί" : (item.status === "done" ? "έτοιμο" : "ακυρωμένο")}
+                  <div key={item.id} style={{ marginBottom: 6 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", padding: 6, borderBottom: "1px dashed #eee" }}>
+                      <div style={{ fontSize: 18 }}>
+                        <div style={{ textDecoration: isStruck ? "line-through" : "none", fontSize: 18 }}>
+                          {displayName}
+                        </div>
+                        <div style={{ fontSize: 13, color: priceLine && priceLine !== "—" ? "#444" : "#999", marginTop: 4 }}>
+                          {priceLine}
+                        </div>
                       </div>
-                      <div style={{ marginTop: 4 }}>
-                        { (item && (item.unit_price !== null && item.unit_price !== undefined) && (item.line_total !== null && item.line_total !== undefined)) ? (
-                          <div style={{ fontSize: 12 }}>
-                            {qty}× {formatPrice(item.unit_price)} = {formatPrice(item.line_total)}
-                          </div>
-                        ) : (
-                          <div style={{ fontSize: 12, color: "#999" }}>—</div>
-                        )}
+                      <div style={{ fontSize: 12, color: "#666", minWidth: 120, textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
+                        <div>
+                          {item.status === "pending" ? "εκκρεμεί" : (item.status === "done" ? "έτοιμο" : "ακυρωμένο")}
+                        </div>
                       </div>
                     </div>
+
+                    {debugEnabled ? (
+                      <div style={{ background: "#f6f6f6", padding: 8, fontSize: 12, fontFamily: "monospace", color: "#222", borderRadius: 6 }}>
+                        <div><strong>Debug</strong></div>
+                        <pre style={{ whiteSpace: "pre-wrap", margin: 0 }}>
+{JSON.stringify({
+  server: {
+    menu_id: item.menu_id ?? null,
+    menu_name: item.menu_name ?? null,
+    unit_price: item.unit_price ?? null,
+    line_total: item.line_total ?? null,
+    qty: item.qty ?? null,
+    weight_kg: item.weight_kg ?? null
+  },
+  parsed_local: parsedLocal
+}, null, 2)}
+                        </pre>
+                      </div>
+                    ) : null}
                   </div>
                 );
               })

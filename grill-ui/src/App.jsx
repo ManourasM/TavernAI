@@ -12,6 +12,7 @@ const station = "grill"; // change to "grill" in grill project
 export default function App() {
   const [ordersMap, setOrdersMap] = useState({}); // { tableStr: { table, items: [...], meta } }
   const [checked, setChecked] = useState({});     // { itemId: true }
+  const [debugEnabled, setDebugEnabled] = useState(false);
 
   // sounds
   const { muted, toggleMute, ensureAudio, playNewOrderSound, playDoneSound } = useSounds();
@@ -164,18 +165,8 @@ export default function App() {
   }
 
   // ----------------------------
-  // Aggregation helpers (unchanged)
+  // Aggregation helpers (updated to separate kg vs portion)
   // ----------------------------
-  function parseQuantity(text) {
-    if (!text) return 1;
-    const m = String(text).match(/\d+/);
-    if (m && m[0]) {
-      const n = parseInt(m[0], 10);
-      return Number.isFinite(n) && n > 0 ? n : 1;
-    }
-    return 1;
-  }
-
   function normalizeForDisplay(text) {
     if (!text) return "(άγνωστο)";
     let s = String(text).trim();
@@ -190,35 +181,79 @@ export default function App() {
   function rootKey(text) {
     const N = 4;
     if (!text) return "__unknown__";
-    const cleaned = String(text).replace(/[^\p{L}\p{N}\s]/gu, " ").trim();
-    const words = cleaned.split(/\s+/).filter(Boolean);
-    if (!words.length) return "__unknown__";
-    const parts = words.map(w => w.normalize("NFC").slice(0, N).toLowerCase());
-    return parts.join(" ");
+    // preserve only letters/numbers/space (unicode)
+    try {
+      const cleaned = String(text).replace(/[^\p{L}\p{N}\s]/gu, " ").trim();
+      const words = cleaned.split(/\s+/).filter(Boolean);
+      if (!words.length) return "__unknown__";
+      const parts = words.map(w => w.normalize("NFC").slice(0, N).toLowerCase());
+      return parts.join(" ");
+    } catch (e) {
+      const cleaned = String(text).replace(/[^\w\s]/g, " ").trim();
+      const words = cleaned.split(/\s+/).filter(Boolean);
+      if (!words.length) return "__unknown__";
+      const parts = words.map(w => w.normalize("NFC").slice(0, N).toLowerCase());
+      return parts.join(" ");
+    }
   }
 
   const aggregated = useMemo(() => {
     const map = new Map();
-    Object.keys(ordersMap).forEach(table => {
-      const tableObj = ordersMap[table];
+    Object.keys(ordersMap).forEach(tableKey => {
+      const tableObj = ordersMap[tableKey];
       if (!tableObj || !Array.isArray(tableObj.items)) return;
       tableObj.items.forEach(item => {
         if (!itemForThisStation(item)) return;
         if (item.status !== "pending") return;
+
+        // Display normalization
         const raw = item.text || item.name || "";
-        const qty = parseQuantity(raw);
         const display = normalizeForDisplay(raw);
-        const key = rootKey(display);
-        const entry = map.get(key) || { key, displayName: display, qty: 0, tables: new Set() };
-        entry.qty += qty;
-        entry.tables.add(tableObj.table || parseInt(table,10));
-        if ((display.length < (entry.displayName || "").length) || !entry.displayName) {
-          entry.displayName = display;
+
+        // decide if this item is a weight (kg) order based on server-provided weight_kg
+        const isWeight = item.weight_kg != null;
+
+        // aggregation key: rootKey + classification (kg/portion) + menu_id (if available) to avoid merging different-price items
+        const baseKey = rootKey(display);
+        const menuIdPart = item.menu_id ? `|${item.menu_id}` : "";
+        const kind = isWeight ? "kg" : "portion";
+        const key = `${baseKey}::${kind}${menuIdPart}`;
+
+        const entry = map.get(key) || { key, displayName: display, qty: 0, tables: new Set(), isWeight };
+        if (isWeight) {
+          // for weight: sum weights (if server provided weight_kg we add it; otherwise fallback to parse numeric)
+          const w = Number(item.weight_kg || 0);
+          entry.qty += (Number.isFinite(w) ? w : 0);
+        } else {
+          // portion: use qty (server-provided qty preferred)
+          const q = item.qty != null ? Number(item.qty) : (String(raw).match(/\d+/) ? Number(String(raw).match(/\d+/)[0]) : 1);
+          entry.qty += (Number.isFinite(q) ? q : 1);
         }
+        entry.tables.add(tableObj.table || parseInt(tableKey, 10));
+        // prefer the shorter displayName? keep first seen as canonical (or try to prefer menu_name if present)
+        if (!entry.displayName && display) entry.displayName = display;
+        // keep menu info for debug if desired
+        entry.menu_id = item.menu_id || entry.menu_id || null;
+
         map.set(key, entry);
       });
     });
-    return Array.from(map.values()).sort((a,b) => b.qty - a.qty || a.displayName.localeCompare(b.displayName));
+
+    // Convert to array and sort: weight groups could be shown separately — sort by qty desc
+    const arr = Array.from(map.values()).map(e => {
+      // format qty for display: for weight groups show kilogram sum as integer/2-decimals?
+      return e;
+    });
+
+    arr.sort((a, b) => {
+      // compare numeric qty descending
+      const aQty = a.qty || 0;
+      const bQty = b.qty || 0;
+      if (bQty !== aQty) return bQty - aQty;
+      return (a.displayName || "").localeCompare(b.displayName || "");
+    });
+
+    return arr;
   }, [ordersMap]);
 
   // ----------------------------
@@ -246,7 +281,11 @@ export default function App() {
 
   return (
     <div style={{ padding: 16, fontFamily: "sans-serif", background: styles.pageBg, minHeight: "100vh" }}>
-      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center" }}>
+        <label style={{ color: "#ddd", fontSize: 14 }}>
+          Debug
+          <input type="checkbox" checked={debugEnabled} onChange={e => setDebugEnabled(e.target.checked)} style={{ marginLeft: 6 }} />
+        </label>
         <button onClick={toggleMute} style={{ padding: "6px 10px", borderRadius: 8, border: "none", cursor: "pointer" }}>
           {muted ? "🔇" : "🔊"}
         </button>
@@ -274,18 +313,43 @@ export default function App() {
               </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {order.items.map(item => (
-                  <label key={item.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: 8, borderRadius: 6, background: styles.lightCard }}>
-                    <input type="checkbox" checked={!!checked[item.id]} onChange={() => toggle(item.id)} />
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 18, fontWeight: 600, color: styles.text }}>{item.text || item.name}</div>
-                      <div style={{ fontSize: 12, color: styles.muted }}>{item.created_at ? new Date(item.created_at).toLocaleTimeString() : ""}</div>
-                    </div>
-                    <div style={{ fontSize: 12, color: (item.status === "pending" ? styles.statusPending : styles.statusDone), minWidth: 86, textAlign: "right" }}>
-                      {item.status === "pending" ? "εκκρεμεί" : (item.status === "done" ? "έτοιμο" : "ακυρωμένο")}
-                    </div>
-                  </label>
-                ))}
+                {order.items.map(item => {
+                  const parsed = {
+                    qty: (item.qty !== undefined ? item.qty : (String(item.text || item.name || "").match(/\d+/) ? Number(String(item.text || item.name || "").match(/\d+/)[0]) : 1)),
+                    isWeight: item.weight_kg != null,
+                    weight_kg: item.weight_kg ?? null,
+                    unitRaw: null
+                  };
+
+                  return (
+                    <label key={item.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: 8, borderRadius: 6, background: styles.lightCard }}>
+                      <input type="checkbox" checked={!!checked[item.id]} onChange={() => toggle(item.id)} />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 18, fontWeight: 600, color: styles.text }}>{item.text || item.name}</div>
+                        <div style={{ fontSize: 12, color: styles.muted }}>{item.created_at ? new Date(item.created_at).toLocaleTimeString() : ""}</div>
+
+                        {debugEnabled ? (
+                          <div style={{ marginTop: 6, background: "#f6f6f6", padding: 6, borderRadius: 6, fontSize: 12, fontFamily: "monospace", color: "#222" }}>
+                            <div><strong>Debug (server)</strong></div>
+                            <pre style={{ whiteSpace: "pre-wrap", margin: 0 }}>
+{JSON.stringify({
+  parsed,
+  menu_id: item.menu_id ?? null,
+  menu_name: item.menu_name ?? null,
+  unit_price: item.unit_price ?? null,
+  line_total: item.line_total ?? null,
+  status: item.status
+}, null, 2)}
+                            </pre>
+                          </div>
+                        ) : null}
+                      </div>
+                      <div style={{ fontSize: 12, color: (item.status === "pending" ? styles.statusPending : styles.statusDone), minWidth: 86, textAlign: "right" }}>
+                        {item.status === "pending" ? "εκκρεμεί" : (item.status === "done" ? "έτοιμο" : "ακυρωμένο")}
+                      </div>
+                    </label>
+                  );
+                })}
               </div>
             </div>
           ))}
@@ -298,7 +362,9 @@ export default function App() {
             {aggregated.map(entry => (
               <div key={entry.key} style={{ background: styles.cardBg, padding: 12, borderRadius: 8, boxShadow: "0 2px 6px rgba(0,0,0,0.08)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div>
-                  <div style={{ fontSize: 18, fontWeight: 700, color: styles.text }}>{entry.qty}× {entry.displayName}</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: styles.text }}>
+                    {entry.isWeight ? `${entry.qty}kg × ${entry.displayName}` : `${entry.qty}× ${entry.displayName}`}
+                  </div>
                   <div style={{ fontSize: 12, color: styles.muted }}>Τραπέζια: {Array.from(entry.tables).join(", ")}</div>
                 </div>
               </div>

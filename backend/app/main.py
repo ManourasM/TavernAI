@@ -1,6 +1,6 @@
 # backend/app/main.py
 import asyncio
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query, Request
 from pydantic import BaseModel
 from uuid import uuid4
@@ -9,6 +9,7 @@ from collections import defaultdict
 from fastapi.middleware.cors import CORSMiddleware
 import re
 import unicodedata
+from uuid import uuid4 as _uuid4
 
 from app.nlp import classify_order, MENU_ITEMS  # Greek-capable classifier + menu lookup
 
@@ -47,7 +48,7 @@ def _normalize_text_for_match(s: str) -> str:
     Normalize a dish line for matching:
     - lowercase
     - remove accents/diacritics
-    - remove punctuation except Greek letters/numbers
+    - remove punctuation except letters/numbers/space
     - collapse whitespace
     """
     if not s:
@@ -56,8 +57,8 @@ def _normalize_text_for_match(s: str) -> str:
     nfkd = unicodedata.normalize("NFD", str(s))
     no_accents = "".join(ch for ch in nfkd if not unicodedata.combining(ch))
     t = no_accents.strip().lower()
-    # keep Greek letters, latin, digits and spaces
-    t = re.sub(r"[^\w\sάέήίόύώϊϋΐΰΆΈΉΊΌΎΏΑ-Ωα-ω0-9]", " ", t)
+    # keep letters, digits and spaces (Greek letters included)
+    t = re.sub(r"[^\w\s]", " ", t, flags=re.UNICODE)
     t = re.sub(r"\s+", " ", t)
     return t.strip()
 
@@ -69,28 +70,54 @@ def _strip_accents(s: str) -> str:
     return "".join(ch for ch in nfkd if not unicodedata.combining(ch))
 
 
-def _parse_qty_and_name(line_text: str):
+def _parse_qty_and_name(line_text: str) -> Tuple[float, str, Optional[float]]:
     """
-    Parse leading quantity and return (qty:int, name:str).
-    If no leading number is found assume qty=1 and return original text as name.
-    Example:
-      "2 Σουβλάκι χοιρινό" -> (2, "Σουβλάκι χοιρινό")
-      "Σουβλάκι" -> (1, "Σουβλάκι")
+    Parse leading quantity and detect weight tokens (kg, κ, g, γρ).
+    Returns: (count_or_weight_number, parsed_name_without_leading_qty, weight_kg_or_None)
+
+    Important: per rule, a number followed IMMEDIATELY (no space) by letters like "kg" or "κ" or "g"/"γρ"
+    will be considered a weight. If there's a space between the number and letters ("2 kg" or "2 kg ...")
+    we treat it as a plain count (2 portions).
     """
     if not line_text or not str(line_text).strip():
-        return 1, ""
+        return 1.0, "", None
     s = str(line_text).strip()
-    m = re.match(r"^\s*(\d+)\s+(.+)$", s)
+
+    # 1) Leading number immediately followed by unit (no space) -> weight
+    # Examples matched: "1kgπαϊδάκια", "1kg παϊδάκια", "1κπαϊδάκια", "500gμπριζόλα", "500γρ μπριζόλα"
+    m = re.match(r"^\s*(\d+(?:[.,]\d+)?)(kg|κ|κιλ|κιλό|g|γρ|gr)(?:\b)?\s*(.*)$", s, flags=re.IGNORECASE)
     if m:
-        try:
-            qty = int(m.group(1))
-            name = m.group(2).strip()
-            if qty <= 0:
-                qty = 1
-            return qty, name
-        except Exception:
-            return 1, s
-    return 1, s
+        num_raw = m.group(1)
+        unit = (m.group(2) or "").lower()
+        rest = (m.group(3) or "").strip()
+        num = float(num_raw.replace(",", ".")) if num_raw else 1.0
+        if unit in ("kg", "κ", "κιλ", "κιλό"):
+            # user gave kilos (e.g. "2κπαϊδάκια" or "2κ παϊδάκια")
+            return num, rest or "", float(num)
+        elif unit in ("g", "γρ", "gr"):
+            # grams -> convert to kg; treat qty as 1 piece with weight
+            return 1.0, rest or "", float(num) / 1000.0
+
+    # 2) Trailing inline grams anywhere like "500g" or "500 γρ" (catch even with a space)
+    m2 = re.search(r"(\d+(?:[.,]\d+)?)\s*(g|γρ|gr)\b", s, flags=re.IGNORECASE)
+    if m2:
+        grams = float(m2.group(1).replace(",", "."))
+        kg = grams / 1000.0
+        cleaned = re.sub(r"(\d+(?:[.,]\d+)?)\s*(g|γρ|gr)\b", " ", s, flags=re.IGNORECASE).strip()
+        return 1.0, cleaned, kg
+
+    # 3) Leading number with optional space but NO adjacent unit captured above -> treat as portions
+    # Examples: "2 παιδάκια", "2 kg παιδάκια" -> here we treat as qty=2 (portions), not weight
+    m3 = re.match(r"^\s*(\d+(?:[.,]\d+)?)(?:\b|\s+)(.*)$", s, flags=re.IGNORECASE)
+    if m3:
+        num_raw = m3.group(1)
+        rest = (m3.group(2) or "").strip()
+        num = float(num_raw.replace(",", ".")) if num_raw else 1.0
+        # It's a plain count (no immediate unit attached)
+        return float(num), rest or "", None
+
+    # fallback: no leading number, simple text order -> qty 1
+    return 1.0, s, None
 
 
 def _levenshtein(a: str, b: str) -> int:
@@ -128,114 +155,170 @@ def _tokenize(s: str) -> List[str]:
     return parts
 
 
-def _find_menu_price_for_name(name: str):
+def _score_strings(order_norm: str, menu_norm: str) -> float:
+    """prefix-aware scoring between two normalized strings (same logic as frontends)."""
+    if not order_norm or not menu_norm:
+        return 0.0
+    if menu_norm in order_norm or order_norm in menu_norm:
+        return 1.0
+
+    order_tokens = _tokenize(order_norm)
+    menu_tokens = _tokenize(menu_norm) or [menu_norm]
+
+    per_token_scores = []
+    for ot in order_tokens or [order_norm]:
+        best_tok = 0.0
+        for mt in menu_tokens:
+            if mt.startswith(ot) or ot.startswith(mt):
+                best_tok = max(best_tok, 1.0)
+                if best_tok == 1.0:
+                    break
+            else:
+                maxl = max(len(ot), len(mt))
+                if maxl == 0:
+                    continue
+                d = _levenshtein(ot, mt)
+                tok_score = 1.0 - (d / maxl)
+                if tok_score < 0:
+                    tok_score = 0.0
+                best_tok = max(best_tok, tok_score)
+        per_token_scores.append(best_tok)
+
+    token_match_score = (sum(per_token_scores) / len(per_token_scores)) if per_token_scores else 0.0
+
+    maxlen = max(len(order_norm), len(menu_norm))
+    full_ratio = 0.0
+    if maxlen > 0:
+        dist = _levenshtein(order_norm, menu_norm)
+        full_ratio = 1.0 - (dist / maxlen)
+        if full_ratio < 0:
+            full_ratio = 0.0
+
+    # prefix bonus
+    common_pref = 0
+    for a_ch, b_ch in zip(order_norm, menu_norm):
+        if a_ch == b_ch:
+            common_pref += 1
+        else:
+            break
+    pref_bonus = (common_pref / maxlen) if maxlen > 0 else 0.0
+
+    score = (0.65 * token_match_score) + (0.25 * full_ratio) + (0.10 * pref_bonus)
+    return score
+
+
+def _entry_is_kg(entry: Dict) -> bool:
+    n = (entry.get("name") or "").lower()
+    return bool(re.search(r"(^|\s)(kg|κ|κιλ|κιλο|κιλα|κιλ\.)", n))
+
+
+def _find_menu_price_for_name(name: str, weight_kg: Optional[float]) -> Tuple[Optional[float], Optional[str], bool, Optional[str], Optional[float]]:
     """
-    Fuzzy match an order-line name against MENU_ITEMS and return (unit_price_float_or_None, matched_menu_id_or_None).
-    Strategy (prefix-aware):
-      - normalize both input and menu item names with _normalize_text_for_match
-      - substring matches are treated as very strong signals
-      - do per-token scoring: if an order token matches the start of a menu token (startswith) score = 1.0
-        otherwise use normalized token-level Levenshtein ratio
-      - final score is the average of per-order-token best token matches, combined with a full-string
-        levenshtein ratio as a secondary signal. Preference is given to longer menu entries when scores tie.
+    Given parsed name (name without leading qty) and optional weight_kg,
+    fuzzy-match to MENU_ITEMS and return best candidate.
+
+    Returns: (unit_price_or_None, matched_menu_id_or_None, is_kg_bool, matched_menu_name_or_None, matched_score_or_None)
+
+    Rules:
+     - Score all MENU_ITEMS and pick the best-scoring entry.
+     - Special-case for 'παϊδάκια' family: if name contains 'παιδ'/'παϊδ', and weight_kg is not None
+       -> forcibly look for kg-variant among paidakia items and pick best of those (if none, fall back).
+       If weight_kg is None -> prefer portion (non-kg) paidakia candidates.
+     - If weight_kg provided, bias toward kg entries; if not, penalize kg entries.
+     - Return matched score for debugging.
     """
     if not name:
-        return None, None
+        return None, None, False, None, None
 
-    norm = _normalize_text_for_match(name)
-    if not norm:
-        return None, None
+    order_norm = _normalize_text_for_match(name)
+    if not order_norm:
+        return None, None, False, None, None
 
-    # Build normalized menu mapping (normalize menu entry names)
-    normalized_menu = {}
-    for k, entry in MENU_ITEMS.items():
-        entry_name = entry.get("name") or ""
-        nk = _normalize_text_for_match(entry_name)
-        if not nk:
-            nk = _normalize_text_for_match(k)
-        # if duplicates appear, keep the first — we'll use length-breaker later if needed
-        normalized_menu.setdefault(nk, entry)
+    # Flatten MENU_ITEMS (dict id->entry) into list of entries, keep ids
+    all_entries = []
+    for mid, ent in MENU_ITEMS.items():
+        e = dict(ent)
+        e["id"] = mid
+        all_entries.append(e)
 
-    best_key = None
-    best_score = 0.0
+    # detect paidakia family tokens
+    order_no_tonos = order_norm.replace("ϊ", "ι").replace("ΐ", "ι")
+    is_paidakia_order = "παιδ" in order_no_tonos or "παϊδ" in order_no_tonos
 
-    # pre-tokenize the order name
-    order_tokens = _tokenize(norm)
-    # if no tokens, fallback to whole-string only
-    if not order_tokens:
-        order_tokens = [norm]
-
-    for menu_norm, entry in normalized_menu.items():
-        if not menu_norm:
+    # compute scores for all entries
+    scored = []
+    for e in all_entries:
+        menu_name = e.get("name", "") or ""
+        en = _normalize_text_for_match(menu_name)
+        if not en:
             continue
+        score = _score_strings(order_norm, en)
 
-        # immediate strong signal: substring either way
-        if menu_norm in norm or norm in menu_norm:
-            score = 1.0
+        # bias according to weight preference
+        is_kg_name = _entry_is_kg(e)
+        if weight_kg is not None:
+            # user asked for weight -> boost kg entries
+            if is_kg_name:
+                score += 0.20
         else:
-            menu_tokens = _tokenize(menu_norm) or [menu_norm]
+            # user didn't ask weight -> penalize kg entries slightly
+            if is_kg_name:
+                score -= 0.15
 
-            # For each order token, find the best matching menu token score:
-            # - startswith (prefix) gets 1.0 (strong)
-            # - else compute token-level levenshtein ratio (1 - dist / max_len)
-            per_token_scores = []
-            for ot in order_tokens:
-                best_tok_score = 0.0
-                for mt in menu_tokens:
-                    if mt.startswith(ot) or ot.startswith(mt):
-                        # prefix or reverse-prefix match -> treat as exact
-                        tok_score = 1.0
-                    else:
-                        max_l = max(len(ot), len(mt))
-                        if max_l == 0:
-                            tok_score = 0.0
-                        else:
-                            d = _levenshtein(ot, mt)
-                            tok_score = 1.0 - (d / max_l)
-                            if tok_score < 0:
-                                tok_score = 0.0
-                    if tok_score > best_tok_score:
-                        best_tok_score = tok_score
-                per_token_scores.append(best_tok_score)
+        # small prefix boost when menu starts with same token
+        toks = _tokenize(order_norm)
+        if toks:
+            ot0 = toks[0]
+            if en.startswith(ot0):
+                score += 0.03
 
-            # average per-order-token score (so short user token that matches prefix boosts score)
-            token_match_score = sum(per_token_scores) / len(per_token_scores) if per_token_scores else 0.0
+        scored.append((score, e))
 
-            # also compute full-string levenshtein ratio as secondary signal
-            max_len = max(len(norm), len(menu_norm))
-            if max_len > 0:
-                full_dist = _levenshtein(norm, menu_norm)
-                full_lev_ratio = 1.0 - (full_dist / max_len)
-                if full_lev_ratio < 0:
-                    full_lev_ratio = 0.0
-            else:
-                full_lev_ratio = 0.0
+    # If this is a paidakia order and weight_kg indicates weight, *restrict* to paidakia-kg candidates if any
+    best_entry = None
+    best_score = -1.0
+    chosen_candidate_set = scored
 
-            # prefix-length bonus: length of common prefix between strings normalized
-            common_pref = 0
-            for a_ch, b_ch in zip(norm, menu_norm):
-                if a_ch == b_ch:
-                    common_pref += 1
-                else:
-                    break
-            prefix_bonus = (common_pref / max_len) if max_len > 0 else 0.0
+    if is_paidakia_order:
+        # build family-specific lists
+        paidakia_candidates = [(s, e) for (s, e) in scored if ("παιδ" in _normalize_text_for_match(e.get("name","")) or "παϊδ" in _normalize_text_for_match(e.get("name","")))]
+        if weight_kg is not None:
+            # prefer kg named variants strictly: filter further by kg in menu name
+            paid_kg = [(s, e) for (s, e) in paidakia_candidates if _entry_is_kg(e)]
+            if paid_kg:
+                chosen_candidate_set = paid_kg
+            elif paidakia_candidates:
+                # no explicit kg entry; fallback to family candidates (we'll rely on score)
+                chosen_candidate_set = paidakia_candidates
+        else:
+            # weight not asked -> prefer non-kg paidakia entries (portions)
+            paid_portions = [(s, e) for (s, e) in paidakia_candidates if not _entry_is_kg(e)]
+            if paid_portions:
+                chosen_candidate_set = paid_portions
+            elif paidakia_candidates:
+                chosen_candidate_set = paidakia_candidates
+        # if family specific returned empty, we'll fall back to all entries (chosen_candidate_set remains scored)
 
-            # Combine scores — token match is primary, full-string and prefix bonus secondary.
-            score = (0.65 * token_match_score) + (0.25 * full_lev_ratio) + (0.10 * prefix_bonus)
+    # pick best score among chosen_candidate_set (if empty, fallback to full scored)
+    if not chosen_candidate_set:
+        chosen_candidate_set = scored
 
-        # prefer longer menu_norm (more specific) when scores tie closely
-        if score > best_score or (abs(score - best_score) < 1e-6 and len(menu_norm) > (len(best_key) if best_key else 0)):
+    for score, e in chosen_candidate_set:
+        if score > best_score:
             best_score = score
-            best_key = menu_norm
+            best_entry = e
+        elif abs(score - best_score) < 1e-9 and best_entry:
+            # tie-breaker: prefer longer/more specific name
+            if len(_normalize_text_for_match(e.get("name",""))) > len(_normalize_text_for_match(best_entry.get("name",""))):
+                best_entry = e
 
-    # threshold to avoid false positives; adjust if needed
-    THRESHOLD = 0.50
-    if best_key and best_score >= THRESHOLD:
-        entry = normalized_menu.get(best_key)
-        if entry:
-            price = entry.get("price")
-            return (float(price) if (price is not None) else None, entry.get("id"))
-    return None, None
+    # threshold
+    THRESH = 0.45
+    if best_entry and best_score >= THRESH:
+        price = best_entry.get("price")
+        is_kg_flag = _entry_is_kg(best_entry)
+        return (float(price) if price is not None else None, best_entry.get("id"), bool(is_kg_flag), best_entry.get("name"), float(best_score))
+    return None, None, False, None, None
 
 
 def _make_item(line_text: str, table: int, category: str) -> Dict:
@@ -243,33 +326,55 @@ def _make_item(line_text: str, table: int, category: str) -> Dict:
 
     Now includes:
       - qty: parsed leading integer quantity (default 1)
+      - weight_kg: when parsed as weight (e.g. leading "2kg..." or "2κ...")
       - unit_price: looked up from MENU_ITEMS when possible (None otherwise)
-      - line_total: qty * unit_price (None if unit_price is None)
+      - line_total: qty * unit_price (or computed from weight_kg * per-kg price)
       - name: parsed name without quantity prefix (for easier display/matching)
+      - menu_id/menu_name: matched menu entry id/name when available
     """
-    qty, parsed_name = _parse_qty_and_name(line_text)
-    unit_price, matched_id = _find_menu_price_for_name(parsed_name)
+    qty, parsed_name, parsed_weight = _parse_qty_and_name(line_text)
+    unit_price, matched_id, is_kg_flag, matched_name, matched_score = _find_menu_price_for_name(parsed_name, parsed_weight)
 
     line_total = None
-    if unit_price is not None:
-        try:
-            line_total = round(qty * float(unit_price), 2)
-        except Exception:
-            line_total = None
 
-    return {
-        "id": str(uuid4()),
+    # If we matched unit_price and have qty/weight, compute sensible line_total:
+    try:
+        if parsed_weight is not None:
+            # weight-ordered: unit_price expected to be per-kg
+            if unit_price is not None:
+                line_total = round(float(unit_price) * float(parsed_weight), 2)
+            # qty for weight items is set to 1 logically (we keep qty=1 but set weight_kg)
+            qty_for_storage = 1
+        else:
+            # portion-ordered: qty * unit_price
+            qty_for_storage = int(qty) if isinstance(qty, (int, float)) else qty
+            if unit_price is not None:
+                try:
+                    line_total = round(float(unit_price) * float(qty_for_storage), 2)
+                except Exception:
+                    line_total = None
+    except Exception:
+        line_total = None
+        qty_for_storage = qty
+
+    # make item
+    item = {
+        "id": str(_uuid4()),
         "table": table,
         "text": line_text.strip(),
         "name": parsed_name,
-        "qty": qty,
+        "qty": int(qty) if (isinstance(qty, (int, float)) and (float(qty).is_integer())) else qty,
+        "weight_kg": parsed_weight if parsed_weight is not None else None,
         "unit_price": unit_price,  # float or None
         "line_total": line_total,  # float or None
         "menu_id": matched_id,
+        "menu_name": matched_name,
         "category": category,  # 'kitchen'|'grill'|'drinks'
         "status": "pending",  # pending / done / cancelled
         "created_at": datetime.utcnow().isoformat() + "Z",
     }
+
+    return item
 
 
 def _meta_for(table_key):
@@ -416,10 +521,14 @@ async def replace_table_order(table: int, payload: SubmitOrder):
             new_norm = _normalize_text_for_match(new_text)
 
             match_idx = None
+            best_score = 0.0
             for idx, rec in enumerate(existing_records):
-                if not rec["used"] and rec["norm"] == new_norm and rec["category"] == new_cat:
-                    match_idx = idx
-                    break
+                if not rec["used"] and rec["category"] == new_cat:
+                    score = _score_strings(new_norm, rec["norm"])
+                    if score > 0.95:  # consider it the same line
+                        match_idx = idx
+                        best_score = score
+                        break
 
             if match_idx is not None:
                 existing_records[match_idx]["used"] = True
@@ -428,6 +537,7 @@ async def replace_table_order(table: int, payload: SubmitOrder):
                 item = _make_item(new_text, table, new_cat)
                 orders_by_table[table].append(item)
                 new_items_created.append(item)
+
 
         # Cancel unmatched old pending items
         cancelled_items = []
@@ -518,7 +628,7 @@ async def mark_item_done(item_id: str):
         # Greek notification: e.g. "ετοιμα <text> τραπέζι <table>"
         try:
             note_text = f"ετοιμα {found.get('text','')} τραπέζι {found.get('table')}"
-            asyncio.create_task(broadcast_to_station("waiter", {"action": "notify", "message": note_text, "id": str(uuid4())}))
+            asyncio.create_task(broadcast_to_station("waiter", {"action": "notify", "message": note_text, "id": str(_uuid4())}))
         except Exception:
             pass
 
@@ -692,7 +802,7 @@ async def station_ws(websocket: WebSocket, station: str):
                         # also notify waiter with short notification text
                         try:
                             note_text = f"ετοιμα {found_item.get('text','')} τραπέζι {found_item.get('table')}"
-                            asyncio.create_task(broadcast_to_station("waiter", {"action": "notify", "message": note_text, "id": str(uuid4())}))
+                            asyncio.create_task(broadcast_to_station("waiter", {"action": "notify", "message": note_text, "id": str(_uuid4())}))
                         except Exception:
                             pass
 

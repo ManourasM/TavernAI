@@ -100,7 +100,7 @@ try:
         try:
             with open(menu_path, "r", encoding="utf-8") as f:
                 menu_j = json.load(f)
-
+            
             def _categorize_raw(cat_raw):
                 """Return one of 'grill', 'drinks', or None based on a raw category string."""
                 if not cat_raw:
@@ -235,10 +235,6 @@ def _contains_stem(norm_text: str, stem_set: set) -> bool:
     return False
 
 def classify_order(order_text: str) -> List[Dict]:
-    """
-    Input: multi-line Greek order text (one dish per line)
-    Output: list of {"text": original_line, "category": "grill"|"kitchen"|"drinks"}
-    """
     results = []
     if not order_text:
         return results
@@ -248,27 +244,34 @@ def classify_order(order_text: str) -> List[Dict]:
         original = ln.strip()
         norm = _normalize_text_basic(original)
 
-        # use spaCy lemmas if available to improve matching
-        lemmas = norm
-        if nlp_model:
-            try:
-                doc = nlp_model(norm)
-                lemmas = " ".join([tok.lemma_ for tok in doc if tok.lemma_])
-                lemmas = _strip_accents(lemmas.lower())
-            except Exception:
-                lemmas = norm
-
-        # Decide category by priority: grill -> drinks -> kitchen (default)
-        if _contains_stem(lemmas, GRILL_SET) or _contains_stem(norm, GRILL_SET):
-            category = "grill"
-        elif _contains_stem(lemmas, DRINK_SET) or _contains_stem(norm, DRINK_SET):
-            category = "drinks"
+        # Check menu.json first
+        menu_entry = MENU_ITEMS.get(norm)
+        if menu_entry and menu_entry.get("category"):
+            category = menu_entry["category"]  # FORCE category from menu.json
         else:
-            if _contains_stem(lemmas, KITCHEN_SET) or _contains_stem(norm, KITCHEN_SET):
-                category = "kitchen"
+            # use spaCy lemmas if available to improve matching
+            lemmas = norm
+            if nlp_model:
+                try:
+                    doc = nlp_model(norm)
+                    lemmas = " ".join([tok.lemma_ for tok in doc if tok.lemma_])
+                    lemmas = _strip_accents(lemmas.lower())
+                except Exception:
+                    lemmas = norm
+
+            # Decide category by priority: grill -> drinks -> kitchen (default)
+            if _contains_stem(lemmas, GRILL_SET) or _contains_stem(norm, GRILL_SET):
+                category = "grill"
+            elif _contains_stem(lemmas, DRINK_SET) or _contains_stem(norm, DRINK_SET):
+                category = "drinks"
             else:
                 category = "kitchen"
 
         results.append({"text": original, "category": category})
 
     return results
+
+
+
+
+

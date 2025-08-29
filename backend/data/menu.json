@@ -10,14 +10,14 @@
   ],
 
   "Appetizers": [
-    { "id": "appetizers_01", "name": "Πατάτες τηγανητές", "price": 5.0, "category": "kitchen" },
-    { "id": "appetizers_02", "name": "Τηγανιτά κολοκυθάκια", "price": 6.0, "category": "kitchen" },
-    { "id": "appetizers_03", "name": "Μελιτζάνες τηγανητές", "price": 6.0, "category": "kitchen" },
-    { "id": "appetizers_04", "name": "Πιπεριές τηγανητές", "price": 6.0, "category": "kitchen" },
+    { "id": "appetizers_01", "name": "Πατάτες", "price": 5.0, "category": "kitchen" },
+    { "id": "appetizers_02", "name": "Κολοκυθάκια", "price": 6.0, "category": "kitchen" },
+    { "id": "appetizers_03", "name": "Μελιτζάνες", "price": 6.0, "category": "kitchen" },
+    { "id": "appetizers_04", "name": "Πιπεριές", "price": 6.0, "category": "kitchen" },
     { "id": "appetizers_05", "name": "Σαγανάκι", "price": 5.5, "category": "kitchen" },
     { "id": "appetizers_06", "name": "Τζατζίκι", "price": 4.5, "category": "kitchen" },
-    { "id": "appetizers_07", "name": "Τυροπιτάκια Αμοργιανά", "price": 6.5, "category": "kitchen" },
-    { "id": "appetizers_08", "name": "Χορτοπιτάκια Αμοργιανά", "price": 6.5, "category": "kitchen" },
+    { "id": "appetizers_07", "name": "Τυροπιτάκια", "price": 6.5, "category": "kitchen" },
+    { "id": "appetizers_08", "name": "Χορτοπιτάκια", "price": 6.5, "category": "kitchen" },
     { "id": "appetizers_09", "name": "Τοματοκεφτέδες", "price": 6.5, "category": "kitchen" },
     { "id": "appetizers_10", "name": "Κολοκυθοκεφτέδες", "price": 6.5, "category": "kitchen" },
     { "id": "appetizers_11", "name": "Μελιτζανοσαλάτα", "price": 5.5, "category": "kitchen" }
@@ -38,9 +38,9 @@
 
   "Our specials": [
     { "id": "specials_01", "name": "Πατατάτο", "price": 13.0, "category": "kitchen" },
-    { "id": "specials_02", "name": "Κατσικάκι λεμονάτο", "price": 13.0, "category": "kitchen" },
-    { "id": "specials_03", "name": "Αρνί φούρνου", "price": 13.0, "category": "kitchen" },
-    { "id": "specials_04", "name": "Χοιρινό λεμονάτο", "price": 13.0, "category": "kitchen" },
+    { "id": "specials_02", "name": "Κατσίκακι", "price": 13.0, "category": "kitchen" },
+    { "id": "specials_03", "name": "Αρνί", "price": 13.0, "category": "kitchen" },
+    { "id": "specials_04", "name": "Χοιρινό", "price": 13.0, "category": "kitchen" },
     { "id": "specials_05", "name": "Κεφτεδάκια", "price": 9.5, "category": "kitchen" },
     { "id": "specials_06", "name": "Μουσακάς", "price": 10.0, "category": "kitchen" },
     { "id": "specials_07", "name": "Καβουρμάς", "price": 11.0, "category": "kitchen" }
@@ -49,13 +49,13 @@
   "From the grill": [
     { "id": "grill_01", "name": "Χοιρινή μπριζόλα", "price": 15.0, "category": "grill" },
     { "id": "grill_02", "name": "Χοιρινές πανσέτες", "price": 14.0, "category": "grill" },
-    { "id": "grill_03", "name": "Χοιρινό σουβλάκι", "price": 15.0, "category": "grill" },
+    { "id": "grill_03", "name": "Σουβλάκι", "price": 15.0, "category": "grill" },
     { "id": "grill_04", "name": "Μπιφτέκι σχάρας", "price": 12.0, "category": "grill" },
     { "id": "grill_05", "name": "Κοτόπουλο σχάρας", "price": 9.5, "category": "grill" },
     { "id": "grill_06", "name": "Κοτόπουλο παϊδάκια", "price": 9.5, "category": "grill" },
     { "id": "grill_07", "name": "Λουκάνικο χωριάτικο", "price": 9.5, "category": "grill" },
-    { "id": "grill_08", "name": "κ Αρνίσια παϊδάκια", "price": 40.0, "category": "grill" },
-    { "id": "grill_09", "name": "Αρνίσια παϊδάκια", "price": 15.0, "category": "grill" }
+    { "id": "grill_08", "name": "kg παϊδάκια", "price": 40.0, "category": "grill" },
+    { "id": "grill_09", "name": "Παϊδάκια", "price": 15.0, "category": "grill" }
   ],
 
   "Beers": [
@@ -85,7 +85,7 @@
   "Soft drinks": [
     { "id": "softdrinks_01", "name": "κοκα", "price": 2.5, "category": "drinks" },
     { "id": "softdrinks_02", "name": "zero", "price": 2.5, "category": "drinks" },
-    { "id": "softdrinks_03", "name": "Sprite", "price": 2.5, "category": "drinks" },
+    { "id": "softdrinks_03", "name": "Σπράιτ", "price": 2.5, "category": "drinks" },
     { "id": "softdrinks_04", "name": "Λεμονάδα", "price": 2.5, "category": "drinks" },
     { "id": "softdrinks_05", "name": "Πορτοκαλάδα", "price": 2.5, "category": "drinks" },
     { "id": "softdrinks_06", "name": "Σόδα", "price": 2.5, "category": "drinks" },
