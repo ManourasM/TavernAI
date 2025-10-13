@@ -45,9 +45,10 @@ When the table is finalized, TavernAI automatically calculates the total cost us
 
 In short, TavernAI turns a traditional taverna's chaotic, paper-based workflow into a real-time, efficient, and fully connected system. It preserves the simplicity of a traditional setting while introducing the power of modern AI and automation.
 
+
 # Screenshots 
-<img width="791" height="772" alt="Screenshot 2025-10-13 142805" src="https://github.com/user-attachments/assets/e5fba5db-f395-49c0-bbc5-bb45ab57fa91" />
-<img width="1904" height="687" alt="Screenshot 2025-10-13 142514" src="https://github.com/user-attachments/assets/a2d1ea43-3524-4366-b213-d7e8961575ef" />
-<img width="512" height="684" alt="Screenshot 2025-10-13 142621" src="https://github.com/user-attachments/assets/c164b4bb-ceb0-4da5-bb08-b5c2637aef2a" />
-<img width="1887" height="849" alt="Screenshot 2025-10-13 142723" src="https://github.com/user-attachments/assets/6b88df79-9ecc-49f3-8986-e146bb575396" />
+<img width="400" height="400" alt="Screenshot 2025-10-13 142805" src="https://github.com/user-attachments/assets/e5fba5db-f395-49c0-bbc5-bb45ab57fa91" />
+<img width="400" height="400" alt="Screenshot 2025-10-13 142514" src="https://github.com/user-attachments/assets/a2d1ea43-3524-4366-b213-d7e8961575ef" />
+<img width="400" height="400" alt="Screenshot 2025-10-13 142621" src="https://github.com/user-attachments/assets/c164b4bb-ceb0-4da5-bb08-b5c2637aef2a" />
+<img width="400" height="400" alt="Screenshot 2025-10-13 142723" src="https://github.com/user-attachments/assets/6b88df79-9ecc-49f3-8986-e146bb575396" />
 
