@@ -89,23 +89,25 @@ export function useSounds() {
     fn();
   }
 
-  // Station: new order sound (slightly ascending pair)
-  function playNewOrderSound() {
-    if (muted) return;
-    playWithRateLimit(() => {
-      playTone(740, 0.16, "sine", 0.11);
-      setTimeout(() => playTone(1040, 0.16, "sine", 0.09), 140);
-    }, 200);
-  }
+  // Station: new order sound — louder, longer, more distinct
+function playNewOrderSound() {
+  if (muted) return;
+  playWithRateLimit(() => {
+    playTone(740, 0.4, "square", 0.25);
+    setTimeout(() => playTone(1040, 0.4, "square", 0.22), 300);
+    setTimeout(() => playTone(880, 0.5, "square", 0.20), 600);
+  }, 500);
+}
 
-  // Waiter: item done (descending pair)
-  function playDoneSound() {
-    if (muted) return;
-    playWithRateLimit(() => {
-      playTone(660, 0.18, "sine", 0.11);
-      setTimeout(() => playTone(440, 0.2, "sine", 0.09), 140);
-    }, 200);
-  }
+// Waiter: item done — also longer and more noticeable
+function playDoneSound() {
+  if (muted) return;
+  playWithRateLimit(() => {
+    playTone(660, 0.4, "triangle", 0.25);
+    setTimeout(() => playTone(440, 0.5, "triangle", 0.22), 300);
+    setTimeout(() => playTone(550, 0.5, "triangle", 0.20), 650);
+  }, 500);
+}
 
   return {
     muted,
