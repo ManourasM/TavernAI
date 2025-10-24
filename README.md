@@ -52,3 +52,9 @@ In short, TavernAI turns a traditional taverna's chaotic, paper-based workflow i
 <img width="400" height="400" alt="Screenshot 2025-10-13 142621" src="https://github.com/user-attachments/assets/c164b4bb-ceb0-4da5-bb08-b5c2637aef2a" />
 <img width="400" height="400" alt="Screenshot 2025-10-13 142723" src="https://github.com/user-attachments/assets/6b88df79-9ecc-49f3-8986-e146bb575396" />
 
+# Demo Video
+
+
+https://github.com/user-attachments/assets/5b64ae28-2452-437b-baee-6cb580f055b8
+
+
