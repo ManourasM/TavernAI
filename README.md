@@ -47,10 +47,57 @@ In short, TavernAI turns a traditional taverna's chaotic, paper-based workflow i
 
 
 # Screenshots 
-<img width="400" height="400" alt="Screenshot 2025-10-13 142805" src="https://github.com/user-attachments/assets/e5fba5db-f395-49c0-bbc5-bb45ab57fa91" />
-<img width="400" height="400" alt="Screenshot 2025-10-13 142514" src="https://github.com/user-attachments/assets/a2d1ea43-3524-4366-b213-d7e8961575ef" />
-<img width="400" height="400" alt="Screenshot 2025-10-13 142621" src="https://github.com/user-attachments/assets/c164b4bb-ceb0-4da5-bb08-b5c2637aef2a" />
-<img width="400" height="400" alt="Screenshot 2025-10-13 142723" src="https://github.com/user-attachments/assets/6b88df79-9ecc-49f3-8986-e146bb575396" />
+
+<div align="center">
+
+<hr/>
+
+<h4>Waiter Interface</h4>
+<img src="https://github.com/user-attachments/assets/5707eafb-b0dc-4548-8820-64514d70910f" 
+     alt="Waiter interface" 
+     width="600" 
+     style="border: 2px solid #ccc; border-radius: 10px; margin: 10px;"/>
+
+<hr/>
+
+<h4>Order Editing Screen</h4>
+<img src="https://github.com/user-attachments/assets/62e7c7df-d148-432f-8ef1-cb5f2502ca52" 
+     alt="Order editing screen" 
+     width="450" 
+     style="border: 2px solid #ccc; border-radius: 10px; margin: 10px;"/>
+
+<hr/>
+
+<h4>Kitchen Interface</h4>
+<img src="https://github.com/user-attachments/assets/f68a7a43-ee80-4b3e-a3d9-ff8d71795ae2" 
+     alt="Kitchen interface" 
+     width="800" 
+     style="border: 2px solid #ccc; border-radius: 10px; margin: 10px;"/>
+
+<hr/>
+
+<h4>Finalized Table View</h4>
+<img src="https://github.com/user-attachments/assets/c997435b-49c5-4fd9-9e18-da14986017e7" 
+     alt="Finalized table view" 
+     width="750" 
+     style="border: 2px solid #ccc; border-radius: 10px; margin: 10px;"/>
+
+<hr/>
+
+<h4>Edit Table View</h4>
+<img src="https://github.com/user-attachments/assets/831f2dea-f13c-4ffb-a0c7-e0ee30c51a04" 
+     alt="Edit table view" 
+     width="500" 
+     style="border: 2px solid #ccc; border-radius: 10px; margin: 10px;"/>
+
+<hr/>
+
+</div>
+
+
+
+
+
 
 # Demo Video
 
