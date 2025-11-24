@@ -27,11 +27,18 @@ docker-compose up -d --build
 
 Once all containers are running, access the UIs at:
 
+- **Mobile App (PWA)**: http://localhost:5177 ⭐ **NEW - All-in-one mobile interface**
 - **Waiter UI**: http://localhost:5173
 - **Kitchen UI**: http://localhost:5175
 - **Grill UI**: http://localhost:5174
 - **Drinks UI**: http://localhost:5176
 - **Backend API**: http://localhost:8000
+
+**Note**: The Mobile App is a Progressive Web App (PWA) that includes:
+- Waiter interface with table management
+- Kitchen, Grill, and Drinks station views
+- Admin panel for menu and user management
+- Can be installed on mobile devices for offline use
 
 ### Stop the Services
 
@@ -44,6 +51,36 @@ To also remove volumes:
 ```bash
 docker-compose down -v
 ```
+
+### Access from Mobile Device
+
+To access the Mobile App from your phone or tablet:
+
+1. **Find your computer's IP address**:
+   ```bash
+   # Windows
+   ipconfig
+   # Look for "IPv4 Address" under your active network adapter
+
+   # Linux/Mac
+   ifconfig
+   # or
+   ip addr show
+   ```
+
+2. **Make sure your phone and computer are on the same WiFi network**
+
+3. **Access the app from your phone's browser**:
+   ```
+   http://YOUR_COMPUTER_IP:5177
+   ```
+   Example: `http://192.168.1.174:5177`
+
+4. **Install as PWA** (optional):
+   - On iOS Safari: Tap Share → Add to Home Screen
+   - On Android Chrome: Tap Menu → Install App
+
+   The app will then work like a native mobile app with offline support!
 
 ## Development Mode
 
@@ -171,14 +208,32 @@ For production deployment:
 ## Architecture
 
 ```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│  Waiter UI  │     │ Kitchen UI  │     │  Grill UI   │     │  Drinks UI  │
-│   :5173     │     │   :5175     │     │   :5174     │     │   :5176     │
-└──────┬──────┘     └──────┬──────┘     └──────┬──────┘     └──────┬──────┘
-       │                   │                   │                   │
-       └───────────────────┴───────────────────┴───────────────────┘
-                                   │
-                                   ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                          Mobile App (PWA) :5177                         │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌────────────┐  │
+│  │   Waiter     │  │   Kitchen    │  │    Grill     │  │   Drinks   │  │
+│  │  Interface   │  │   Station    │  │   Station    │  │  Station   │  │
+│  └──────────────┘  └──────────────┘  └──────────────┘  └────────────┘  │
+│  ┌──────────────────────────────────────────────────────────────────┐  │
+│  │                      Admin Panel                                 │  │
+│  └──────────────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────┬───────────────────────────────────────┘
+                                  │
+        ┌─────────────────────────┼─────────────────────────┐
+        │                         │                         │
+┌───────▼───────┐     ┌───────────▼─────┐     ┌───────────▼─────┐
+│  Waiter UI    │     │   Kitchen UI    │     │    Grill UI     │
+│   :5173       │     │     :5175       │     │     :5174       │
+└───────┬───────┘     └───────────┬─────┘     └───────────┬─────┘
+        │                         │                         │
+        │             ┌───────────▼─────┐                   │
+        │             │   Drinks UI     │                   │
+        │             │     :5176       │                   │
+        │             └───────────┬─────┘                   │
+        │                         │                         │
+        └─────────────────────────┼─────────────────────────┘
+                                  │
+                                  ▼
                           ┌─────────────────┐
                           │  Backend API    │
                           │    :8000        │
@@ -187,5 +242,14 @@ For production deployment:
                           └─────────────────┘
 ```
 
-All frontend UIs communicate with the backend via REST API and WebSocket connections.
+**All frontend UIs communicate with the backend via REST API and WebSocket connections.**
+
+**Mobile App (PWA)** is the recommended interface for production use:
+- All-in-one solution with waiter, station, and admin interfaces
+- Modern, professional UI with Greek language support
+- Can be installed on mobile devices
+- Works offline with service worker caching
+- Real-time updates via WebSocket
+
+**Individual UIs** (waiter-ui, kitchen-ui, grill-ui, drinks-ui) are legacy interfaces that can still be used separately.
 

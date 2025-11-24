@@ -1,0 +1,50 @@
+# Docker Compose for Mobile App Only
+# This file runs only the backend and mobile app, without the legacy UIs
+# Usage: docker-compose -f docker-compose.mobile.yml up
+
+version: '3.8'
+
+services:
+  # Backend service
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: tavern-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+    volumes:
+      # Mount data directory for menu.json
+      - ./backend/data:/app/data
+    restart: unless-stopped
+    networks:
+      - tavern-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/config')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Mobile App (PWA)
+  mobile-app:
+    build:
+      context: ./mobile-app
+      dockerfile: ../Dockerfile.frontend
+    container_name: tavern-mobile-app
+    ports:
+      - "5177:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - tavern-network
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+networks:
+  tavern-network:
+    driver: bridge
+
