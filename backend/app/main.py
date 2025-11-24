@@ -28,8 +28,8 @@ orders_by_table: Dict[int, List[Dict]] = defaultdict(list)
 # Table-level metadata (people count, bread preference)
 table_meta: Dict[int, Dict] = defaultdict(lambda: {"people": None, "bread": False})
 
-# Keep websocket clients per station (kitchen, grill, waiter)
-station_connections: Dict[str, List[WebSocket]] = {"kitchen": [], "grill": [], "waiter": []}
+# Keep websocket clients per station (kitchen, grill, drinks, waiter)
+station_connections: Dict[str, List[WebSocket]] = {"kitchen": [], "grill": [], "drinks": [], "waiter": []}
 lock = asyncio.Lock()  # ensure atomic updates when multiple requests come in
 
 
@@ -45,15 +45,40 @@ class SubmitOrder(BaseModel):
 def _normalize_text_for_match(s: str) -> str:
     """
     Normalize a dish line for matching:
+    - Strip parentheses content (e.g., "2 μυθος (χωρίς σάλτσα)" -> "2 μυθος")
+    - Strip quantity prefix with units (e.g., "2 μυθος" -> "μυθος", "2λ κρασι" -> "κρασι", "500ml ρακι" -> "ρακι")
     - lowercase
     - remove accents/diacritics
     - remove punctuation except Greek letters/numbers
     - collapse whitespace
+
+    This ensures "2 μυθος" and "3 μυθος" match as the same item.
+    Also ensures "2λ κρασι" and "3λ κρασι" match, and "2kg παιδακια" and "3kg παιδακια" match.
+    Also ensures "2 μυθος (χωρίς σάλτσα)" and "3 μυθος" match.
     """
     if not s:
         return ""
+
+    text = s.strip()
+
+    # Strip parentheses content (e.g., "(χωρίς σάλτσα)")
+    # This ensures "2 μυθος (χωρίς σάλτσα)" matches "2 μυθος"
+    parentheses_pattern = r'\s*\([^)]*\)\s*'
+    text = re.sub(parentheses_pattern, ' ', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+
+    # Strip quantity prefix patterns (must match the parsing logic in nlp.py):
+    # - "2 μυθος" -> "μυθος"
+    # - "2λ κρασι" -> "κρασι"
+    # - "2kg παιδακια" -> "παιδακια"
+    # - "500ml ρακι" -> "ρακι"
+    # - "2.5kg παιδακια" -> "παιδακια"
+    # Pattern: number (int or decimal) + optional unit (NO SPACE) + space + item text
+    quantity_pattern = r'^\d+(?:\.\d+)?(λτ|λ|lt|l|kg|κιλα|κιλο|κ|ml)?\s+'
+    text = re.sub(quantity_pattern, '', text, flags=re.IGNORECASE)
+
     # strip accents
-    nfkd = unicodedata.normalize("NFD", str(s))
+    nfkd = unicodedata.normalize("NFD", str(text))
     no_accents = "".join(ch for ch in nfkd if not unicodedata.combining(ch))
     t = no_accents.strip().lower()
     # keep Greek letters, latin, digits and spaces
@@ -238,20 +263,31 @@ def _find_menu_price_for_name(name: str):
     return None, None
 
 
-def _make_item(line_text: str, table: int, category: str) -> Dict:
+def _make_item(line_text: str, table: int, category: str, menu_id: str = None,
+               menu_name: str = None, price: float = None, multiplier: float = None) -> Dict:
     """Create a standardized item object for storage & messages.
 
     Now includes:
-      - qty: parsed leading integer quantity (default 1)
-      - unit_price: looked up from MENU_ITEMS when possible (None otherwise)
-      - line_total: qty * unit_price (None if unit_price is None)
-      - name: parsed name without quantity prefix (for easier display/matching)
+      - text: original user text (preserved exactly as written)
+      - menu_name: matched menu item name (for pricing display in waiter UI)
+      - qty: quantity multiplier (can be float for kg/liters)
+      - unit_price: unit price from menu
+      - line_total: qty * unit_price
+      - menu_id: matched menu item ID
     """
-    qty, parsed_name = _parse_qty_and_name(line_text)
-    unit_price, matched_id = _find_menu_price_for_name(parsed_name)
+    # Use provided values from classification, or fall back to old parsing
+    if menu_id is not None and price is not None and multiplier is not None:
+        qty = multiplier
+        unit_price = price
+        matched_id = menu_id
+        parsed_name = menu_name or line_text
+    else:
+        # Fallback to old parsing (for backwards compatibility)
+        qty, parsed_name = _parse_qty_and_name(line_text)
+        unit_price, matched_id = _find_menu_price_for_name(parsed_name)
 
     line_total = None
-    if unit_price is not None:
+    if unit_price is not None and qty is not None:
         try:
             line_total = round(qty * float(unit_price), 2)
         except Exception:
@@ -260,8 +296,9 @@ def _make_item(line_text: str, table: int, category: str) -> Dict:
     return {
         "id": str(uuid4()),
         "table": table,
-        "text": line_text.strip(),
-        "name": parsed_name,
+        "text": line_text.strip(),  # Original user text
+        "menu_name": menu_name,  # Matched menu name for pricing display
+        "name": parsed_name,  # For backwards compatibility
         "qty": qty,
         "unit_price": unit_price,  # float or None
         "line_total": line_total,  # float or None
@@ -301,9 +338,10 @@ async def broadcast_to_station(station: str, message: Dict):
 
 
 async def broadcast_to_all(message: Dict):
-    """Broadcast to kitchen, grill and waiter."""
+    """Broadcast to kitchen, grill, drinks and waiter."""
     await broadcast_to_station("kitchen", message)
     await broadcast_to_station("grill", message)
+    await broadcast_to_station("drinks", message)
     await broadcast_to_station("waiter", message)
 
 
@@ -336,10 +374,19 @@ async def submit_order(payload: SubmitOrder):
         # save table-level metadata
         table_meta[payload.table] = {"people": payload.people, "bread": bool(payload.bread)}
 
-        classified = classify_order(payload.order_text)  # returns list of {text, category}
+        # classify_order now returns: {text, category, menu_id, menu_name, price, multiplier}
+        classified = classify_order(payload.order_text)
         created_items = []
         for entry in classified:
-            item = _make_item(entry["text"], payload.table, entry["category"])
+            item = _make_item(
+                entry["text"],
+                payload.table,
+                entry["category"],
+                menu_id=entry.get("menu_id"),
+                menu_name=entry.get("menu_name"),
+                price=entry.get("price"),
+                multiplier=entry.get("multiplier")
+            )
             orders_by_table[payload.table].append(item)
             created_items.append(item)
 
@@ -347,7 +394,13 @@ async def submit_order(payload: SubmitOrder):
         meta_for_table = _meta_for(payload.table)
         for item in created_items:
             msg = {"action": "new", "item": item, "meta": meta_for_table}
-            target_station = "grill" if item["category"] == "grill" else "kitchen"
+            # Route to appropriate station based on category
+            if item["category"] == "grill":
+                target_station = "grill"
+            elif item["category"] == "drinks":
+                target_station = "drinks"
+            else:
+                target_station = "kitchen"
             asyncio.create_task(broadcast_to_station(target_station, msg))
 
         # Notify waiter clients about each new item & meta
@@ -403,12 +456,14 @@ async def replace_table_order(table: int, payload: SubmitOrder):
         # Broadcast meta update to all stations and waiter
         asyncio.create_task(broadcast_to_station("kitchen", msg_meta))
         asyncio.create_task(broadcast_to_station("grill", msg_meta))
+        asyncio.create_task(broadcast_to_station("drinks", msg_meta))
         asyncio.create_task(broadcast_to_station("waiter", msg_meta))
 
         # classify new payload
         classified = classify_order(payload.order_text)
 
         new_items_created = []
+        updated_items = []
         kept_items = []
         for entry in classified:
             new_text = entry["text"].strip()
@@ -423,9 +478,41 @@ async def replace_table_order(table: int, payload: SubmitOrder):
 
             if match_idx is not None:
                 existing_records[match_idx]["used"] = True
-                kept_items.append(existing_records[match_idx]["item"])
+                existing_item = existing_records[match_idx]["item"]
+
+                # Check if the text actually changed (e.g., "2 μυθος" -> "3 μυθος")
+                if existing_item["text"] != new_text:
+                    # Update the existing item with new text and pricing
+                    existing_item["text"] = new_text
+
+                    # Only update pricing if new classification has a price
+                    # Otherwise preserve existing pricing (important for unmatched items)
+                    if entry.get("price") is not None:
+                        existing_item["menu_name"] = entry.get("menu_name")
+                        existing_item["qty"] = entry.get("multiplier", 1)
+                        existing_item["unit_price"] = entry.get("price")
+                        if entry.get("multiplier"):
+                            existing_item["line_total"] = round(entry["price"] * entry["multiplier"], 2)
+                        else:
+                            existing_item["line_total"] = entry.get("price")
+                    # If no new price but we have existing price, recalculate with new quantity
+                    elif existing_item.get("unit_price") is not None and entry.get("multiplier"):
+                        existing_item["qty"] = entry.get("multiplier", 1)
+                        existing_item["line_total"] = round(existing_item["unit_price"] * entry["multiplier"], 2)
+
+                    updated_items.append(existing_item)
+                else:
+                    kept_items.append(existing_item)
             else:
-                item = _make_item(new_text, table, new_cat)
+                item = _make_item(
+                    new_text,
+                    table,
+                    new_cat,
+                    menu_id=entry.get("menu_id"),
+                    menu_name=entry.get("menu_name"),
+                    price=entry.get("price"),
+                    multiplier=entry.get("multiplier")
+                )
                 orders_by_table[table].append(item)
                 new_items_created.append(item)
 
@@ -439,21 +526,51 @@ async def replace_table_order(table: int, payload: SubmitOrder):
         # Broadcast deletes for cancelled items and notify waiter
         for it in cancelled_items:
             msg = {"action": "delete", "item_id": it["id"], "table": table}
-            target_station = "grill" if it["category"] == "grill" else "kitchen"
+            # Route to appropriate station based on category
+            if it["category"] == "grill":
+                target_station = "grill"
+            elif it["category"] == "drinks":
+                target_station = "drinks"
+            else:
+                target_station = "kitchen"
             asyncio.create_task(broadcast_to_station(target_station, msg))
             asyncio.create_task(broadcast_to_station("waiter", {"action": "update", "item": it, "meta": _meta_for(table)}))
 
-        # Broadcast new items (with meta) and notify waiter
+        # Broadcast updated items (quantity/text changed) to stations and waiter
         meta_for_table = _meta_for(table)
+        for it in updated_items:
+            # Route to appropriate station based on category
+            if it["category"] == "grill":
+                target_station = "grill"
+            elif it["category"] == "drinks":
+                target_station = "drinks"
+            else:
+                target_station = "kitchen"
+            asyncio.create_task(broadcast_to_station(target_station, {"action": "update", "item": it, "meta": meta_for_table}))
+            asyncio.create_task(broadcast_to_station("waiter", {"action": "update", "item": it, "meta": meta_for_table}))
+
+        # Broadcast new items (with meta) and notify waiter
         for it in new_items_created:
-            target_station = "grill" if it["category"] == "grill" else "kitchen"
+            # Route to appropriate station based on category
+            if it["category"] == "grill":
+                target_station = "grill"
+            elif it["category"] == "drinks":
+                target_station = "drinks"
+            else:
+                target_station = "kitchen"
             asyncio.create_task(broadcast_to_station(target_station, {"action": "new", "item": it, "meta": meta_for_table}))
             asyncio.create_task(broadcast_to_station("waiter", {"action": "update", "item": it, "meta": meta_for_table}))
 
         # Broadcast update for remaining pending items (kept + new) so stations refresh table header
         remaining_pending = [it for it in orders_by_table.get(table, []) if it["status"] == "pending"]
         for it in remaining_pending:
-            target_station = "grill" if it["category"] == "grill" else "kitchen"
+            # Route to appropriate station based on category
+            if it["category"] == "grill":
+                target_station = "grill"
+            elif it["category"] == "drinks":
+                target_station = "drinks"
+            else:
+                target_station = "kitchen"
             asyncio.create_task(broadcast_to_station(target_station, {"action": "update", "item": it, "meta": meta_for_table}))
             asyncio.create_task(broadcast_to_station("waiter", {"action": "update", "item": it, "meta": meta_for_table}))
 
@@ -472,7 +589,13 @@ async def cancel_item(table: int, item_id: str):
                 it["status"] = "cancelled"
                 found = True
                 msg = {"action": "delete", "item_id": item_id, "table": table}
-                target_station = "grill" if it["category"] == "grill" else "kitchen"
+                # Route to appropriate station based on category
+                if it["category"] == "grill":
+                    target_station = "grill"
+                elif it["category"] == "drinks":
+                    target_station = "drinks"
+                else:
+                    target_station = "kitchen"
                 asyncio.create_task(broadcast_to_station(target_station, msg))
                 # also notify waiter (so UI can update and show cancelled)
                 asyncio.create_task(broadcast_to_station("waiter", {"action": "update", "item": it, "meta": _meta_for(table)}))
@@ -488,6 +611,7 @@ async def cancel_item(table: int, item_id: str):
             asyncio.create_task(broadcast_to_station("waiter", meta_msg))
             asyncio.create_task(broadcast_to_station("kitchen", meta_msg))
             asyncio.create_task(broadcast_to_station("grill", meta_msg))
+            asyncio.create_task(broadcast_to_station("drinks", meta_msg))
 
     return {"status": "ok", "cancelled": item_id}
 
@@ -529,6 +653,7 @@ async def mark_item_done(item_id: str):
             asyncio.create_task(broadcast_to_station("waiter", meta_msg))
             asyncio.create_task(broadcast_to_station("kitchen", meta_msg))
             asyncio.create_task(broadcast_to_station("grill", meta_msg))
+            asyncio.create_task(broadcast_to_station("drinks", meta_msg))
 
     return {"status": "ok", "item": found}
 
@@ -565,7 +690,7 @@ async def purge_done(older_than_seconds: int = 0):
 @app.websocket("/ws/{station}")
 async def station_ws(websocket: WebSocket, station: str):
     """
-    Register a kitchen, grill or waiter websocket. The station will receive JSON messages of the form:
+    Register a kitchen, grill, drinks or waiter websocket. The station will receive JSON messages of the form:
       { action: "new"|"delete"|"update", item: {...} } or {action:"delete", item_id: "..."}
 
     Waiter sockets may send:
@@ -574,7 +699,7 @@ async def station_ws(websocket: WebSocket, station: str):
       { action: "mark_done", item_id: "..." } to mark item as done
     """
     station = station.lower()
-    if station not in ("kitchen", "grill", "waiter"):
+    if station not in ("kitchen", "grill", "drinks", "waiter"):
         await websocket.close(code=4001)
         return
 
@@ -588,12 +713,21 @@ async def station_ws(websocket: WebSocket, station: str):
             orders_snapshot = {str(t): orders_by_table[t] for t in orders_by_table}
             await websocket.send_json({"action": "init", "orders": orders_snapshot, "meta": {str(k): table_meta[k] for k in table_meta}})
         else:
-            # For kitchen/grill: send current pending items for that station in chronological order, attach meta to each item
+            # For kitchen/grill/drinks: send current pending items for that station in chronological order, attach meta to each item
             pending = []
             for table_items in orders_by_table.values():
                 for it in table_items:
                     if it["status"] == "pending":
-                        if (station == "grill" and it["category"] == "grill") or (station == "kitchen" and it["category"] != "grill"):
+                        # Route items to appropriate station based on category
+                        if station == "grill" and it["category"] == "grill":
+                            item_copy = dict(it)
+                            item_copy["meta"] = _meta_for(it["table"])
+                            pending.append(item_copy)
+                        elif station == "drinks" and it["category"] == "drinks":
+                            item_copy = dict(it)
+                            item_copy["meta"] = _meta_for(it["table"])
+                            pending.append(item_copy)
+                        elif station == "kitchen" and it["category"] not in ("grill", "drinks"):
                             item_copy = dict(it)
                             item_copy["meta"] = _meta_for(it["table"])
                             pending.append(item_copy)
@@ -643,7 +777,13 @@ async def station_ws(websocket: WebSocket, station: str):
                     for it in items_to_remove:
                         # send delete to stations
                         msg = {"action": "delete", "item_id": it["id"], "table": table_to_finalize}
-                        target_station = "grill" if it["category"] == "grill" else "kitchen"
+                        # Route to appropriate station based on category
+                        if it["category"] == "grill":
+                            target_station = "grill"
+                        elif it["category"] == "drinks":
+                            target_station = "drinks"
+                        else:
+                            target_station = "kitchen"
                         asyncio.create_task(broadcast_to_station(target_station, msg))
                         # notify waiters as well
                         asyncio.create_task(broadcast_to_station("waiter", msg))

@@ -59,11 +59,11 @@
   ],
 
   "Beers": [
-    { "id": "beers_01", "name": "Άλφα (500ml)", "price": 4.0, "category": "drinks" },
-    { "id": "beers_02", "name": "Μύθος (500ml)", "price": 4.0, "category": "drinks" },
-    { "id": "beers_03", "name": "Μάμος (500ml)", "price": 4.0, "category": "drinks" },
-    { "id": "beers_04", "name": "Άνεφ (500ml)", "price": 4.0, "category": "drinks" },
-    { "id": "beers_05", "name": "Κάιζερ (500ml)", "price": 4.5, "category": "drinks" }
+    { "id": "beers_01", "name": "Άλφα", "price": 4.0, "category": "drinks" },
+    { "id": "beers_02", "name": "Μύθος", "price": 4.0, "category": "drinks" },
+    { "id": "beers_03", "name": "Μάμος", "price": 4.0, "category": "drinks" },
+    { "id": "beers_04", "name": "Άνεφ", "price": 4.0, "category": "drinks" },
+    { "id": "beers_05", "name": "Κάιζερ", "price": 4.5, "category": "drinks" }
   ],
 
   "Wines": [

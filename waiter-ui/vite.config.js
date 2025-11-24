@@ -1,6 +1,10 @@
 // vite.config.js (waiter)
 import { defineConfig } from "vite";
 
+// Use environment variable for backend URL, default to localhost
+const backendUrl = process.env.VITE_BACKEND_URL || "http://localhost:8000";
+const backendWsUrl = process.env.VITE_BACKEND_WS_URL || "ws://localhost:8000";
+
 export default defineConfig({
   server: {
     host: true,        // bind to 0.0.0.0 so other devices (phone) can reach it
@@ -12,33 +16,33 @@ export default defineConfig({
     proxy: {
       // proxy REST API calls to backend
       "/order": {
-        target: "http://localhost:8000",
+        target: backendUrl,
         changeOrigin: true,
         secure: false,
       },
       "/config": {
-        target: "http://localhost:8000",
+        target: backendUrl,
         changeOrigin: true,
         secure: false,
       },
       "/orders": {
-        target: "http://localhost:8000",
+        target: backendUrl,
         changeOrigin: true,
         secure: false,
       },
       "/table_meta": {
-        target: "http://localhost:8000",
+        target: backendUrl,
         changeOrigin: true,
         secure: false,
       },
       "/item": {
-        target: "http://localhost:8000",
+        target: backendUrl,
         changeOrigin: true,
         secure: false,
       },
       // proxy websocket endpoint(s)
       "/ws": {
-        target: "ws://localhost:8000",
+        target: backendWsUrl,
         ws: true,
         changeOrigin: true,
       },

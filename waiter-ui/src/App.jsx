@@ -266,6 +266,7 @@ export default function App() {
         if (action === "table_finalized") {
           const t = msg.table;
           if (t !== undefined && t !== null) {
+            // Remove table completely (returns to default green)
             removeTable(t);
             setSelectedTable(prev => {
               if (prev === t || String(prev) === String(t)) {
@@ -305,21 +306,38 @@ export default function App() {
   }
 
   async function sendOrEdit() {
-    if (!selectedTable) return;
+    console.log("[sendOrEdit] called", { selectedTable, text, people, bread });
+    if (!selectedTable) {
+      console.warn("[sendOrEdit] no table selected");
+      return;
+    }
+    if (!text || !text.trim()) {
+      console.warn("[sendOrEdit] no order text entered");
+      alert("Παρακαλώ εισάγετε παραγγελία");
+      return;
+    }
     const payloadTable = selectedTable;
     const payloadText = text;
     const payloadPeople = people ? parseInt(people, 10) : null;
     const payloadBread = !!bread;
     try {
+      console.log("[sendOrEdit] sending order...", { payloadTable, payloadText, payloadPeople, payloadBread });
       if (!ordersMap[String(selectedTable)] || (ordersMap[String(selectedTable)].items || []).length === 0) {
-        await postOrder(payloadTable, payloadText, payloadPeople, payloadBread);
+        console.log("[sendOrEdit] calling postOrder");
+        const result = await postOrder(payloadTable, payloadText, payloadPeople, payloadBread);
+        console.log("[sendOrEdit] postOrder result:", result);
       } else {
-        await putOrder(payloadTable, payloadText, payloadPeople, payloadBread);
+        console.log("[sendOrEdit] calling putOrder");
+        const result = await putOrder(payloadTable, payloadText, payloadPeople, payloadBread);
+        console.log("[sendOrEdit] putOrder result:", result);
       }
+      console.log("[sendOrEdit] refreshing orders...");
       await refresh();
+      console.log("[sendOrEdit] success, clearing form");
       setSelectedTable(null); setText(""); setPeople(""); setBread(false);
     } catch (err) {
-      console.error("sendOrEdit failed", err);
+      console.error("[sendOrEdit] failed", err);
+      alert("Σφάλμα κατά την αποστολή της παραγγελίας: " + err.message);
     }
   }
 

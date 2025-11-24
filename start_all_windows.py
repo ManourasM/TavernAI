@@ -35,6 +35,11 @@ SERVICES = {
         "dir": "kitchen-ui",
         "cmd": r'npm run dev -- --host 0.0.0.0 --port 5175',
         "port": 5175
+    },
+    "drinks": {
+        "dir": "drinks-ui",
+        "cmd": r'npm run dev -- --host 0.0.0.0 --port 5176',
+        "port": 5176
     }
 }
 # ---------- /CONFIG ----------
@@ -153,7 +158,7 @@ def prepare_backend_command(backend_dir):
     return f'{safe_sys_py} -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000'
 
 def main():
-    print("Starting services with fixed ports (backend:8000, waiter:5173, grill:5174, kitchen:5175)\n")
+    print("Starting services with fixed ports (backend:8000, waiter:5173, grill:5174, kitchen:5175, drinks:5176)\n")
     print(f"Detected repository root: {ROOT}\n")
 
     # fill backend command dynamically

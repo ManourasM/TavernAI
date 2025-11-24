@@ -179,6 +179,9 @@ export default function App() {
   function normalizeForDisplay(text) {
     if (!text) return "(άγνωστο)";
     let s = String(text).trim();
+    // Remove parentheses content for aggregate display
+    // e.g., "Μύθος (χωρίς σάλτσα)" -> "Μύθος"
+    s = s.replace(/\s*\([^)]*\)\s*/g, " ");
     s = s.replace(/\b(τεμ\.?|τεμ|x|χ)\b/gi, " ");
     s = s.replace(/\b\d+\b/g, " ");
     s = s.replace(/[,:·\-\(\)\[\]\.\/]/g, " ");
@@ -218,9 +221,13 @@ function rootKey(text) {
       tableObj.items.forEach(item => {
         if (!itemForThisStation(item)) return;
         if (item.status !== "pending") return;
-        const raw = item.text || item.name || "";
-        const qty = parseQuantity(raw);
-        const display = normalizeForDisplay(raw);
+
+        // Use menu_name for display if available (matched items), otherwise use text
+        const displayText = item.menu_name || item.text || item.name || "";
+        // Use item.qty if available (from backend), otherwise parse from text
+        const qty = (item.qty !== null && item.qty !== undefined) ? item.qty : parseQuantity(item.text || item.name || "");
+
+        const display = normalizeForDisplay(displayText);
         const key = rootKey(display);
         const entry = map.get(key) || { key, displayName: display, qty: 0, tables: new Set() };
         entry.qty += qty;
