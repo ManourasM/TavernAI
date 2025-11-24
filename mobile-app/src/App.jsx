@@ -1,7 +1,5 @@
 import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { App as CapacitorApp } from '@capacitor/app';
-import { StatusBar, Style } from '@capacitor/status-bar';
 import useAuthStore from './store/authStore';
 import useMenuStore from './store/menuStore';
 import useNotificationStore from './store/notificationStore';
@@ -48,37 +46,16 @@ function App() {
   const isMenuSetup = useMenuStore((state) => state.isMenuSetup);
 
   useEffect(() => {
-    // Initialize Capacitor plugins
+    // Initialize PWA
     const initializeApp = async () => {
-      try {
-        // Set status bar style
-        await StatusBar.setStyle({ style: Style.Light });
-        await StatusBar.setBackgroundColor({ color: '#ffffff' });
-      } catch (error) {
-        console.log('StatusBar not available (web mode)');
-      }
-
       // Load menu
       await loadMenu();
 
       // Initialize notifications
       await initializeNotifications();
-
-      // Handle back button on Android
-      CapacitorApp.addListener('backButton', ({ canGoBack }) => {
-        if (!canGoBack) {
-          CapacitorApp.exitApp();
-        } else {
-          window.history.back();
-        }
-      });
     };
 
     initializeApp();
-
-    return () => {
-      CapacitorApp.removeAllListeners();
-    };
   }, []);
 
   return (

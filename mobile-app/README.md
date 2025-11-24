@@ -1,6 +1,8 @@
-# Tavern Mobile App
+# Tavern PWA (Progressive Web App)
 
-A unified mobile application for the Tavern Ordering System with authentication, menu setup via OCR, multi-endpoint support, and push notifications.
+A unified Progressive Web App for the Tavern Ordering System with authentication, menu setup via OCR, multi-endpoint support, and notifications.
+
+**✨ No app store needed! Users just visit a URL and click "Add to Home Screen"**
 
 ## Features
 
@@ -21,17 +23,22 @@ A unified mobile application for the Tavern Ordering System with authentication,
   - Persistent storage with Capacitor Preferences
   - Auth, Menu, and Notification stores
 
-- **Capacitor Integration**
-  - Camera plugin for photo capture
-  - Local Notifications for order alerts
-  - Preferences for data persistence
-  - Status Bar styling
-  - Back button handling (Android)
+- **HTML5 Camera & File Upload**
+  - Camera access via HTML5 input
+  - File upload from gallery
+  - Works on all modern browsers
+
+- **Web Notifications API**
+  - In-app notifications (works on Android)
+  - Visual and sound alerts
+  - Notification history
 
 - **Progressive Web App (PWA)**
   - Offline functionality with service workers
-  - Installable on mobile devices
+  - Installable on mobile devices (Add to Home Screen)
   - App manifest for native-like experience
+  - Works on Android and iOS
+  - No app store needed!
 
 ### 🚧 To Be Implemented
 - Menu Editor component (preview and edit extracted items)

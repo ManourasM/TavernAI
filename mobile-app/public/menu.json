@@ -1,0 +1,96 @@
+{
+  "Salads": [
+    { "id": "salads_01", "name": "Χωριάτικη", "price": 9.5, "category": "kitchen" },
+    { "id": "salads_02", "name": "Ντοματοσαλάτα", "price": 7.5, "category": "kitchen" },
+    { "id": "salads_03", "name": "Ντάκος", "price": 8.0, "category": "kitchen" },
+    { "id": "salads_04", "name": "Κολοκυθάκια βραστά", "price": 6.5, "category": "kitchen" },
+    { "id": "salads_05", "name": "Παντζάρια", "price": 6.5, "category": "kitchen" },
+    { "id": "salads_06", "name": "Αμπελοφάσουλα", "price": 6.5, "category": "kitchen" },
+    { "id": "salads_07", "name": "Βλήτα", "price": 6.5, "category": "kitchen" }
+  ],
+
+  "Appetizers": [
+    { "id": "appetizers_01", "name": "Πατάτες τηγανητές", "price": 5.0, "category": "kitchen" },
+    { "id": "appetizers_02", "name": "Τηγανιτά κολοκυθάκια", "price": 6.0, "category": "kitchen" },
+    { "id": "appetizers_03", "name": "Μελιτζάνες τηγανητές", "price": 6.0, "category": "kitchen" },
+    { "id": "appetizers_04", "name": "Πιπεριές τηγανητές", "price": 6.0, "category": "kitchen" },
+    { "id": "appetizers_05", "name": "Σαγανάκι", "price": 5.5, "category": "kitchen" },
+    { "id": "appetizers_06", "name": "Τζατζίκι", "price": 4.5, "category": "kitchen" },
+    { "id": "appetizers_07", "name": "Τυροπιτάκια Αμοργιανά", "price": 6.5, "category": "kitchen" },
+    { "id": "appetizers_08", "name": "Χορτοπιτάκια Αμοργιανά", "price": 6.5, "category": "kitchen" },
+    { "id": "appetizers_09", "name": "Τοματοκεφτέδες", "price": 6.5, "category": "kitchen" },
+    { "id": "appetizers_10", "name": "Κολοκυθοκεφτέδες", "price": 6.5, "category": "kitchen" },
+    { "id": "appetizers_11", "name": "Μελιτζανοσαλάτα", "price": 5.5, "category": "kitchen" }
+  ],
+  "Cheese": [
+    { "id": "cheese_01", "name": "Φετα", "price": 4.5, "category": "kitchen" },
+    { "id": "cheese_02", "name": "Ξινομυζήθρα", "price": 5.0, "category": "kitchen" },
+    { "id": "cheese_03", "name": "Τυρί", "price": 5.0, "category": "kitchen" }
+  ],
+
+  "Vegetables & Sides": [
+    { "id": "vegetables_01", "name": "Ιμάμ", "price": 9.5, "category": "kitchen" },
+    { "id": "vegetables_02", "name": "Γεμιστά", "price": 9.5, "category": "kitchen" },
+    { "id": "vegetables_03", "name": "Μπριάμ", "price": 9.5, "category": "kitchen" },
+    { "id": "vegetables_04", "name": "Φάβα", "price": 6.5, "category": "kitchen" },
+    { "id": "vegetables_05", "name": "Γίγαντες", "price": 9.5, "category": "kitchen" }
+  ],
+
+  "Our specials": [
+    { "id": "specials_01", "name": "Πατατάτο", "price": 13.0, "category": "kitchen" },
+    { "id": "specials_02", "name": "Κατσικάκι λεμονάτο", "price": 13.0, "category": "kitchen" },
+    { "id": "specials_03", "name": "Αρνί φούρνου", "price": 13.0, "category": "kitchen" },
+    { "id": "specials_04", "name": "Χοιρινό λεμονάτο", "price": 13.0, "category": "kitchen" },
+    { "id": "specials_05", "name": "Κεφτεδάκια", "price": 9.5, "category": "kitchen" },
+    { "id": "specials_06", "name": "Μουσακάς", "price": 10.0, "category": "kitchen" },
+    { "id": "specials_07", "name": "Καβουρμάς", "price": 11.0, "category": "kitchen" }
+  ],
+
+  "From the grill": [
+    { "id": "grill_01", "name": "Χοιρινή μπριζόλα", "price": 15.0, "category": "grill" },
+    { "id": "grill_02", "name": "Χοιρινές πανσέτες", "price": 14.0, "category": "grill" },
+    { "id": "grill_03", "name": "Χοιρινό σουβλάκι", "price": 15.0, "category": "grill" },
+    { "id": "grill_04", "name": "Μπιφτέκι σχάρας", "price": 12.0, "category": "grill" },
+    { "id": "grill_05", "name": "Κοτόπουλο σχάρας", "price": 9.5, "category": "grill" },
+    { "id": "grill_06", "name": "Κοτόπουλο παϊδάκια", "price": 9.5, "category": "grill" },
+    { "id": "grill_07", "name": "Λουκάνικο χωριάτικο", "price": 9.5, "category": "grill" },
+    { "id": "grill_08", "name": "κ Αρνίσια παϊδάκια", "price": 40.0, "category": "grill" },
+    { "id": "grill_09", "name": "Αρνίσια παϊδάκια", "price": 15.0, "category": "grill" }
+  ],
+
+  "Beers": [
+    { "id": "beers_01", "name": "Άλφα", "price": 4.0, "category": "drinks" },
+    { "id": "beers_02", "name": "Μύθος", "price": 4.0, "category": "drinks" },
+    { "id": "beers_03", "name": "Μάμος", "price": 4.0, "category": "drinks" },
+    { "id": "beers_04", "name": "Άνεφ", "price": 4.0, "category": "drinks" },
+    { "id": "beers_05", "name": "Κάιζερ", "price": 4.5, "category": "drinks" }
+  ],
+
+  "Wines": [
+    { "id": "wines_01", "name": "Κρασί λευκό (0.5)", "price": 5.5, "category": "drinks" },
+    { "id": "wines_02", "name": "Κρασί ροζέ (0.5)", "price": 5.5, "category": "drinks" },
+    { "id": "wines_03", "name": "Κρασί κόκκινο (0.5)", "price": 6.0, "category": "drinks" },
+    { "id": "wines_04", "name": "Κρασί λευκό (1lt)", "price": 10.0, "category": "drinks" },
+    { "id": "wines_05", "name": "Κρασί ροζέ (1lt)", "price": 10.0, "category": "drinks" },
+    { "id": "wines_06", "name": "Κρασί κόκκινο (1lt)", "price": 11.0, "category": "drinks" }
+  ],
+
+  "Spirits": [
+    { "id": "spirits_01", "name": "Ούζο ποτήρι", "price": 3.0, "category": "drinks" },
+    { "id": "spirits_02", "name": "Ρακί ποτήρι", "price": 3.0, "category": "drinks" },
+    { "id": "spirits_03", "name": "Ρακί (250)", "price": 7.0, "category": "drinks" },
+    { "id": "spirits_04", "name": "Ούζο (250)", "price": 7.0, "category": "drinks" }
+  ],
+
+  "Soft drinks": [
+    { "id": "softdrinks_01", "name": "κοκα", "price": 2.5, "category": "drinks" },
+    { "id": "softdrinks_02", "name": "zero", "price": 2.5, "category": "drinks" },
+    { "id": "softdrinks_03", "name": "Sprite", "price": 2.5, "category": "drinks" },
+    { "id": "softdrinks_04", "name": "Λεμονάδα", "price": 2.5, "category": "drinks" },
+    { "id": "softdrinks_05", "name": "Πορτοκαλάδα", "price": 2.5, "category": "drinks" },
+    { "id": "softdrinks_06", "name": "Σόδα", "price": 2.5, "category": "drinks" },
+    { "id": "softdrinks_07", "name": "Ανθρακούχο", "price": 2.5, "category": "drinks" },
+    { "id": "softdrinks_08", "name": "Νερό εμφιαλωμένο 0.5lt", "price": 0.6, "category": "drinks" },
+    { "id": "softdrinks_09", "name": "Νερό εμφιαλωμένο 1.5lt", "price": 1.5, "category": "drinks" }
+  ]
+}

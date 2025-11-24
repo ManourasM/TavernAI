@@ -1,6 +1,5 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
 import useMenuStore from '../store/menuStore';
 import MenuOCR from '../components/MenuOCR';
 import MenuEditor from '../components/MenuEditor';
@@ -11,42 +10,47 @@ function SetupPage() {
   const [image, setImage] = useState(null);
   const [extractedMenu, setExtractedMenu] = useState(null);
   const [loading, setLoading] = useState(false);
-  
+
+  const cameraInputRef = useRef(null);
+  const fileInputRef = useRef(null);
+
   const saveMenu = useMenuStore((state) => state.saveMenu);
   const navigate = useNavigate();
 
-  const handleTakePhoto = async () => {
-    try {
-      const photo = await Camera.getPhoto({
-        quality: 90,
-        allowEditing: false,
-        resultType: CameraResultType.DataUrl,
-        source: CameraSource.Camera,
-      });
-
-      setImage(photo.dataUrl);
-      setStep(2);
-    } catch (error) {
-      console.error('Error taking photo:', error);
-      alert('Failed to take photo. Please try again.');
+  const handleTakePhoto = () => {
+    // Trigger camera input
+    if (cameraInputRef.current) {
+      cameraInputRef.current.click();
     }
   };
 
-  const handleUploadPhoto = async () => {
-    try {
-      const photo = await Camera.getPhoto({
-        quality: 90,
-        allowEditing: false,
-        resultType: CameraResultType.DataUrl,
-        source: CameraSource.Photos,
-      });
-
-      setImage(photo.dataUrl);
-      setStep(2);
-    } catch (error) {
-      console.error('Error uploading photo:', error);
-      alert('Failed to upload photo. Please try again.');
+  const handleUploadPhoto = () => {
+    // Trigger file input
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
     }
+  };
+
+  const handleFileSelect = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Check if it's an image
+    if (!file.type.startsWith('image/')) {
+      alert('Please select an image file');
+      return;
+    }
+
+    // Convert to data URL
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      setImage(e.target.result);
+      setStep(2);
+    };
+    reader.onerror = () => {
+      alert('Failed to read file. Please try again.');
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleOCRComplete = (menu) => {
@@ -85,6 +89,23 @@ function SetupPage() {
             <h2>Step 1: Capture Menu</h2>
             <p>Take a photo of your menu or upload an existing image</p>
 
+            {/* Hidden file inputs */}
+            <input
+              ref={cameraInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={handleFileSelect}
+              style={{ display: 'none' }}
+            />
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleFileSelect}
+              style={{ display: 'none' }}
+            />
+
             <div className="button-group">
               <button onClick={handleTakePhoto} className="primary-button">
                 📷 Take Photo
@@ -117,7 +138,11 @@ function SetupPage() {
           <MenuEditor
             initialMenu={extractedMenu}
             onSave={handleSaveMenu}
-            onBack={() => setStep(2)}
+            onBack={() => {
+              setImage(null);
+              setExtractedMenu(null);
+              setStep(1);
+            }}
             loading={loading}
           />
         )}

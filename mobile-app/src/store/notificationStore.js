@@ -1,7 +1,5 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { LocalNotifications } from '@capacitor/local-notifications';
-import { Preferences } from '@capacitor/preferences';
 
 const useNotificationStore = create(
   persist(
@@ -14,11 +12,24 @@ const useNotificationStore = create(
       // Initialize notifications (request permissions)
       initialize: async () => {
         try {
-          const permission = await LocalNotifications.requestPermissions();
-          if (permission.display === 'granted') {
-            console.log('Notification permissions granted');
+          if (!('Notification' in window)) {
+            console.log('This browser does not support notifications');
+            return { success: false, error: 'Notifications not supported' };
+          }
+
+          if (Notification.permission === 'granted') {
+            console.log('Notification permissions already granted');
             return { success: true };
           }
+
+          if (Notification.permission !== 'denied') {
+            const permission = await Notification.requestPermission();
+            if (permission === 'granted') {
+              console.log('Notification permissions granted');
+              return { success: true };
+            }
+          }
+
           return { success: false, error: 'Notification permissions denied' };
         } catch (error) {
           console.error('Failed to request notification permissions:', error);
@@ -29,30 +40,37 @@ const useNotificationStore = create(
       // Send notification
       sendNotification: async (title, body, data = {}) => {
         const { isMuted, soundEnabled } = get();
-        
+
         if (isMuted) {
           console.log('Notifications are muted');
           return { success: false, muted: true };
         }
 
         try {
-          await LocalNotifications.schedule({
-            notifications: [
-              {
-                title,
-                body,
-                id: Date.now(),
-                schedule: { at: new Date(Date.now() + 100) },
-                sound: soundEnabled ? 'beep.wav' : undefined,
-                attachments: undefined,
-                actionTypeId: '',
-                extra: data,
-              },
-            ],
+          // Check if notifications are supported and permitted
+          if (!('Notification' in window)) {
+            console.log('Notifications not supported');
+            return { success: false, error: 'Notifications not supported' };
+          }
+
+          if (Notification.permission !== 'granted') {
+            console.log('Notification permission not granted');
+            return { success: false, error: 'Permission not granted' };
+          }
+
+          // Create notification
+          const notification = new Notification(title, {
+            body,
+            icon: '/pwa-192x192.png',
+            badge: '/pwa-192x192.png',
+            tag: `tavern-${Date.now()}`,
+            requireInteraction: false,
+            silent: !soundEnabled,
+            data,
           });
 
           // Add to notification history
-          const notification = {
+          const historyItem = {
             id: Date.now(),
             title,
             body,
@@ -60,7 +78,17 @@ const useNotificationStore = create(
             read: false,
           };
 
-          set({ notifications: [notification, ...get().notifications] });
+          set({ notifications: [historyItem, ...get().notifications] });
+
+          // Optional: Play sound if enabled
+          if (soundEnabled) {
+            try {
+              const audio = new Audio('/notification.mp3');
+              audio.play().catch(e => console.log('Could not play sound:', e));
+            } catch (e) {
+              console.log('Audio not available');
+            }
+          }
 
           return { success: true };
         } catch (error) {
@@ -73,12 +101,6 @@ const useNotificationStore = create(
       toggleMute: async () => {
         const newMuted = !get().isMuted;
         set({ isMuted: newMuted });
-        
-        await Preferences.set({
-          key: 'notifications_muted',
-          value: JSON.stringify(newMuted),
-        });
-
         return { success: true, isMuted: newMuted };
       },
 
@@ -86,12 +108,6 @@ const useNotificationStore = create(
       toggleSound: async () => {
         const newSound = !get().soundEnabled;
         set({ soundEnabled: newSound });
-        
-        await Preferences.set({
-          key: 'notifications_sound',
-          value: JSON.stringify(newSound),
-        });
-
         return { success: true, soundEnabled: newSound };
       },
 
@@ -99,11 +115,11 @@ const useNotificationStore = create(
       toggleVibration: async () => {
         const newVibration = !get().vibrationEnabled;
         set({ vibrationEnabled: newVibration });
-        
-        await Preferences.set({
-          key: 'notifications_vibration',
-          value: JSON.stringify(newVibration),
-        });
+
+        // Use Vibration API if available
+        if (newVibration && 'vibrate' in navigator) {
+          navigator.vibrate(200);
+        }
 
         return { success: true, vibrationEnabled: newVibration };
       },
