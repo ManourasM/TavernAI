@@ -246,28 +246,79 @@ export default function StationView({ station }) {
 
   const isNarrow = typeof window !== "undefined" && window.innerWidth < 700;
 
+  // Modern color scheme based on station type
+  const stationColors = {
+    kitchen: { primary: "#4CAF50", secondary: "#81C784", bg: "#E8F5E9", dark: "#2E7D32" },
+    grill: { primary: "#FF5722", secondary: "#FF8A65", bg: "#FBE9E7", dark: "#D84315" },
+    drinks: { primary: "#2196F3", secondary: "#64B5F6", bg: "#E3F2FD", dark: "#1565C0" }
+  };
+
+  const colors = stationColors[station] || stationColors.kitchen;
+
   const styles = {
-    pageBg: "#0b0f14",
+    pageBg: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
     cardBg: "#ffffff",
-    lightCard: "#ffffff",
-    text: "#000000",
-    muted: "#666666",
-    statusPending: "#c0392b",
-    statusDone: "#2ecc71",
-    confirm: "#b07a39"
+    lightCard: "#f8f9fa",
+    text: "#2c3e50",
+    muted: "#7f8c8d",
+    statusPending: "#e74c3c",
+    statusDone: "#27ae60",
+    confirm: colors.primary,
+    shadow: "0 4px 6px rgba(0,0,0,0.1)",
+    shadowHover: "0 8px 12px rgba(0,0,0,0.15)"
   };
 
   const stationTitle = station === "grill" ? "ΨΗΣΤΑΡΙΑ" : station === "drinks" ? "ΠΟΤΑ" : "ΚΟΥΖΙΝΑ";
 
   return (
-    <div style={{ padding: 16, fontFamily: "sans-serif", background: styles.pageBg, minHeight: "100vh" }}>
-      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-        <button onClick={toggleMute} style={{ padding: "6px 10px", borderRadius: 8, border: "none", cursor: "pointer" }}>
-          {muted ? "🔇" : "🔊"}
-        </button>
+    <div style={{
+      padding: 0,
+      fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
+      background: styles.pageBg,
+      minHeight: "100vh"
+    }}>
+      {/* Header */}
+      <div style={{
+        background: colors.primary,
+        padding: "20px 24px",
+        boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+        position: "sticky",
+        top: 0,
+        zIndex: 100
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", maxWidth: 1400, margin: "0 auto" }}>
+          <h1 style={{
+            margin: 0,
+            color: "#fff",
+            fontSize: 32,
+            fontWeight: 700,
+            letterSpacing: "0.5px",
+            textShadow: "0 2px 4px rgba(0,0,0,0.2)"
+          }}>
+            {stationTitle}
+          </h1>
+          <button
+            onClick={toggleMute}
+            style={{
+              padding: "10px 16px",
+              borderRadius: 12,
+              border: "2px solid rgba(255,255,255,0.3)",
+              background: "rgba(255,255,255,0.2)",
+              color: "#fff",
+              fontSize: 20,
+              cursor: "pointer",
+              transition: "all 0.2s",
+              backdropFilter: "blur(10px)"
+            }}
+            onMouseEnter={(e) => e.target.style.background = "rgba(255,255,255,0.3)"}
+            onMouseLeave={(e) => e.target.style.background = "rgba(255,255,255,0.2)"}
+          >
+            {muted ? "🔇" : "🔊"}
+          </button>
+        </div>
       </div>
 
-      <h1 style={{ textAlign: "center", marginBottom: 12, color: "#fff" }}>{stationTitle}</h1>
+      <div style={{ padding: "24px", maxWidth: 1400, margin: "0 auto" }}>
 
       <div style={{
         display: "flex",
@@ -276,28 +327,121 @@ export default function StationView({ station }) {
         flexDirection: isNarrow ? "column" : "row"
       }}>
         <div style={{ flex: 1, minWidth: 320 }}>
-          {tableEntries.length === 0 && <div style={{ textAlign: "center", padding: 18, color: "#ddd" }}>Δεν υπάρχουν ενεργές παραγγελίες</div>}
+          {tableEntries.length === 0 && (
+            <div style={{
+              textAlign: "center",
+              padding: 48,
+              background: "rgba(255,255,255,0.9)",
+              borderRadius: 16,
+              boxShadow: styles.shadow,
+              color: styles.muted,
+              fontSize: 18
+            }}>
+              ✓ Δεν υπάρχουν ενεργές παραγγελίες
+            </div>
+          )}
 
           {tableEntries.map(([tableNum, order]) => (
-            <div key={tableNum} style={{ background: styles.cardBg, border: "1px solid #e6e2da", borderRadius: 8, padding: 12, marginBottom: 12 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                <div style={{ fontWeight: 700, color: styles.text }}>Τραπέζι {tableNum}</div>
-                <div style={{ fontSize: 12, color: styles.muted }}>
-                  {order.meta && order.meta.people ? <>Άτομα: {order.meta.people}</> : null}
-                  {order.meta && order.meta.bread ? <span style={{ marginLeft: 8 }}>• Ψωμί</span> : null}
+            <div key={tableNum} style={{
+              background: styles.cardBg,
+              borderRadius: 16,
+              padding: 20,
+              marginBottom: 16,
+              boxShadow: styles.shadow,
+              transition: "all 0.3s",
+              border: `3px solid ${colors.secondary}`,
+              borderLeft: `8px solid ${colors.primary}`
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                <div style={{
+                  fontSize: 24,
+                  fontWeight: 700,
+                  color: colors.dark,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8
+                }}>
+                  <span style={{
+                    background: colors.primary,
+                    color: "#fff",
+                    width: 40,
+                    height: 40,
+                    borderRadius: "50%",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: 18,
+                    fontWeight: 700
+                  }}>
+                    {tableNum}
+                  </span>
+                  Τραπέζι
+                </div>
+                <div style={{
+                  fontSize: 13,
+                  color: styles.muted,
+                  background: styles.lightCard,
+                  padding: "6px 12px",
+                  borderRadius: 8,
+                  fontWeight: 600
+                }}>
+                  {order.meta && order.meta.people ? <>👥 {order.meta.people}</> : null}
+                  {order.meta && order.meta.bread ? <span style={{ marginLeft: 8 }}>🍞</span> : null}
                 </div>
               </div>
 
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {order.items.map(item => (
-                  <label key={item.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: 8, borderRadius: 6, background: styles.lightCard }}>
-                    <input type="checkbox" checked={!!checked[item.id]} onChange={() => toggle(item.id)} />
+                  <label key={item.id} style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 12,
+                    padding: 14,
+                    borderRadius: 12,
+                    background: styles.lightCard,
+                    cursor: "pointer",
+                    transition: "all 0.2s",
+                    border: "2px solid transparent"
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = colors.bg;
+                    e.currentTarget.style.borderColor = colors.secondary;
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = styles.lightCard;
+                    e.currentTarget.style.borderColor = "transparent";
+                  }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={!!checked[item.id]}
+                      onChange={() => toggle(item.id)}
+                      style={{
+                        width: 20,
+                        height: 20,
+                        cursor: "pointer",
+                        accentColor: colors.primary
+                      }}
+                    />
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 18, fontWeight: 600, color: styles.text }}>{item.text || item.name}</div>
-                      <div style={{ fontSize: 12, color: styles.muted }}>{item.created_at ? new Date(item.created_at).toLocaleTimeString() : ""}</div>
+                      <div style={{ fontSize: 18, fontWeight: 600, color: styles.text, marginBottom: 4 }}>
+                        {item.text || item.name}
+                      </div>
+                      <div style={{ fontSize: 12, color: styles.muted }}>
+                        🕐 {item.created_at ? new Date(item.created_at).toLocaleTimeString('el-GR') : ""}
+                      </div>
                     </div>
-                    <div style={{ fontSize: 12, color: (item.status === "pending" ? styles.statusPending : styles.statusDone), minWidth: 86, textAlign: "right" }}>
-                      {item.status === "pending" ? "εκκρεμεί" : (item.status === "done" ? "έτοιμο" : "ακυρωμένο")}
+                    <div style={{
+                      fontSize: 13,
+                      color: "#fff",
+                      background: item.status === "pending" ? styles.statusPending : styles.statusDone,
+                      padding: "6px 12px",
+                      borderRadius: 8,
+                      minWidth: 90,
+                      textAlign: "center",
+                      fontWeight: 600
+                    }}>
+                      {item.status === "pending" ? "⏳ εκκρεμεί" : (item.status === "done" ? "✓ έτοιμο" : "✗ ακυρωμένο")}
                     </div>
                   </label>
                 ))}
@@ -306,30 +450,159 @@ export default function StationView({ station }) {
           ))}
         </div>
 
-        <div style={{ width: 320, minWidth: 260 }}>
-          <div style={{ fontWeight: 700, marginBottom: 10, color: "#fff" }}>ΣΥΝΟΛΙΚΑ — {aggregated.length} είδη</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {aggregated.length === 0 && <div style={{ color: "#ddd" }}>Δεν υπάρχουν πιάτα προς εκτέλεση</div>}
-            {aggregated.map(entry => (
-              <div key={entry.key} style={{ background: styles.cardBg, padding: 12, borderRadius: 8, boxShadow: "0 2px 6px rgba(0,0,0,0.08)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div>
-                  <div style={{ fontSize: 18, fontWeight: 700, color: styles.text }}>{entry.qty}× {entry.displayName}</div>
-                  <div style={{ fontSize: 12, color: styles.muted }}>Τραπέζια: {Array.from(entry.tables).join(", ")}</div>
+        <div style={{ width: isNarrow ? "100%" : 360, minWidth: 260 }}>
+          <div style={{
+            background: "rgba(255,255,255,0.95)",
+            borderRadius: 16,
+            padding: 20,
+            boxShadow: styles.shadow,
+            position: isNarrow ? "relative" : "sticky",
+            top: isNarrow ? 0 : 100
+          }}>
+            <div style={{
+              fontSize: 20,
+              fontWeight: 700,
+              marginBottom: 16,
+              color: colors.dark,
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              paddingBottom: 12,
+              borderBottom: `3px solid ${colors.primary}`
+            }}>
+              <span style={{ fontSize: 24 }}>📊</span>
+              ΣΥΝΟΛΙΚΑ
+              <span style={{
+                background: colors.primary,
+                color: "#fff",
+                padding: "4px 12px",
+                borderRadius: 20,
+                fontSize: 16,
+                marginLeft: "auto"
+              }}>
+                {aggregated.length}
+              </span>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, maxHeight: isNarrow ? "auto" : "calc(100vh - 250px)", overflowY: "auto", paddingRight: 4 }}>
+              {aggregated.length === 0 && (
+                <div style={{
+                  color: styles.muted,
+                  textAlign: "center",
+                  padding: 24,
+                  fontSize: 15
+                }}>
+                  Δεν υπάρχουν πιάτα προς εκτέλεση
                 </div>
-              </div>
-            ))}
+              )}
+              {aggregated.map(entry => (
+                <div key={entry.key} style={{
+                  background: colors.bg,
+                  padding: 16,
+                  borderRadius: 12,
+                  boxShadow: "0 2px 4px rgba(0,0,0,0.06)",
+                  border: `2px solid ${colors.secondary}`,
+                  transition: "all 0.2s"
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.boxShadow = styles.shadowHover;
+                  e.currentTarget.style.transform = "translateY(-2px)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.boxShadow = "0 2px 4px rgba(0,0,0,0.06)";
+                  e.currentTarget.style.transform = "translateY(0)";
+                }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+                    <div style={{
+                      background: colors.primary,
+                      color: "#fff",
+                      fontSize: 20,
+                      fontWeight: 700,
+                      width: 48,
+                      height: 48,
+                      borderRadius: 12,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      boxShadow: "0 2px 6px rgba(0,0,0,0.15)"
+                    }}>
+                      {entry.qty}
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 17, fontWeight: 700, color: styles.text, lineHeight: 1.3 }}>
+                        {entry.displayName}
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{
+                    fontSize: 13,
+                    color: styles.muted,
+                    background: "rgba(255,255,255,0.7)",
+                    padding: "6px 10px",
+                    borderRadius: 8,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6
+                  }}>
+                    <span>🍽️</span>
+                    Τραπέζια: {Array.from(entry.tables).sort((a,b) => a-b).join(", ")}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </div>
 
-      <div style={{ position: "fixed", right: 20, bottom: 20 }}>
-        <button onClick={confirmAll} disabled={Object.keys(checked).length === 0} style={{
-          padding: "12px 20px",
-          background: Object.keys(checked).length === 0 ? "#666" : styles.confirm,
-          color: "#fff", border: "none", borderRadius: 8, fontSize: 16, cursor: Object.keys(checked).length === 0 ? "not-allowed" : "pointer"
+      {/* Floating Confirm Button */}
+      {Object.keys(checked).length > 0 && (
+        <div style={{
+          position: "fixed",
+          right: 24,
+          bottom: 24,
+          zIndex: 1000
         }}>
-          Επιβεβαίωση ({Object.keys(checked).length})
-        </button>
+          <button
+            onClick={confirmAll}
+            style={{
+              padding: "16px 32px",
+              background: `linear-gradient(135deg, ${colors.primary} 0%, ${colors.dark} 100%)`,
+              color: "#fff",
+              border: "none",
+              borderRadius: 16,
+              fontSize: 18,
+              fontWeight: 700,
+              cursor: "pointer",
+              boxShadow: "0 8px 24px rgba(0,0,0,0.25)",
+              transition: "all 0.3s",
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              letterSpacing: "0.5px"
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.transform = "translateY(-4px) scale(1.05)";
+              e.target.style.boxShadow = "0 12px 32px rgba(0,0,0,0.35)";
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.transform = "translateY(0) scale(1)";
+              e.target.style.boxShadow = "0 8px 24px rgba(0,0,0,0.25)";
+            }}
+          >
+            <span style={{ fontSize: 24 }}>✓</span>
+            Επιβεβαίωση
+            <span style={{
+              background: "rgba(255,255,255,0.3)",
+              padding: "4px 12px",
+              borderRadius: 12,
+              fontSize: 16
+            }}>
+              {Object.keys(checked).length}
+            </span>
+          </button>
+        </div>
+      )}
       </div>
     </div>
   );

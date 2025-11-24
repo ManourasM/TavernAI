@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { postOrder, putOrder, getOrders, getTableMeta, createWS } from '../services/api';
+import './WaiterView.css';
 
 function WaiterView() {
   const [tables, setTables] = useState({});
@@ -13,12 +14,27 @@ function WaiterView() {
 
   // Helper function to format price
   const formatPrice = (price) => {
-    if (price === null || price === undefined) return '—';
-    return `€${Number(price).toFixed(2)}`;
+    if (price === null || price === undefined || Number.isNaN(price)) return '—';
+    try {
+      return `${Number(price).toFixed(2)} €`;
+    } catch {
+      return '—';
+    }
   };
 
   // Get current order items for selected table
   const currentOrderItems = selectedTable && tables[selectedTable] ? tables[selectedTable] : [];
+
+  // Compute subtotal of known line totals for non-cancelled items
+  const subtotalKnown = currentOrderItems.reduce((acc, it) => {
+    if (!it) return acc;
+    if (it.status === 'cancelled') return acc;
+    if (typeof it.line_total === 'number') return acc + it.line_total;
+    return acc;
+  }, 0);
+  const hasUnknownPrices = currentOrderItems.some(
+    (it) => it && it.status !== 'cancelled' && (it.line_total === null || it.line_total === undefined)
+  );
 
   // Load initial orders
   useEffect(() => {
@@ -189,11 +205,22 @@ function WaiterView() {
   };
 
   return (
-    <div className="waiter-view">
+    <div className="waiter-container">
+      {/* Header */}
+      <div className="waiter-header">
+        <div className="waiter-header-content">
+          <h1 className="waiter-title">ΣΕΡΒΙΤΟΡΟΣ</h1>
+          <div className="connection-status">
+            <div className={`status-dot ${connected ? 'status-connected' : 'status-disconnected'}`}></div>
+            {connected ? 'Συνδεδεμένο' : 'Αποσυνδεδεμένο'}
+          </div>
+        </div>
+      </div>
+
       {!selectedTable ? (
         <>
-          <h1 style={{ textAlign: 'center' }}>ΤΡΑΠΕΖΙΑ</h1>
-          <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center' }}>
+          <h1 style={{ textAlign: 'center', color: '#fff', fontSize: 36, margin: '32px 0', textShadow: '0 2px 4px rgba(0,0,0,0.2)' }}>ΤΡΑΠΕΖΙΑ</h1>
+          <div className="tables-grid">
             {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17].map((num) => {
               const tableNum = String(num);
               const tableOrders = tables[tableNum] || [];
@@ -206,154 +233,124 @@ function WaiterView() {
               else if (hasPending) color = '#d9534f';
 
               return (
-                <div
+                <button
                   key={num}
-                  style={{
-                    width: 80,
-                    height: 80,
-                    margin: 8,
-                    fontSize: 20,
-                    backgroundColor: color,
-                    color: '#fff',
-                    borderRadius: 8,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    cursor: 'pointer',
-                  }}
+                  className="table-button"
+                  style={{ backgroundColor: color }}
                   onClick={() => handleSelectTable(tableNum)}
                 >
                   {num}
-                </div>
+                </button>
               );
             })}
           </div>
         </>
       ) : (
-        <div style={{ padding: 16 }}>
-          <h2>ΤΡΑΠΕΖΙ {selectedTable}</h2>
+        <div className="order-form">
+          <div className="form-header">
+            <div className="table-badge">{selectedTable}</div>
+            ΤΡΑΠΕΖΙ {selectedTable}
+          </div>
 
-          <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 8 }}>
-            <label>
-              Αριθμός ατόμων:
-              <input
-                type="number"
-                min="1"
-                value={people}
-                onChange={(e) => setPeople(e.target.value)}
-                style={{ width: 80, marginLeft: 8 }}
-              />
-            </label>
+          <div className="meta-inputs">
+            <div className="input-group">
+              <label>
+                👥 Αριθμός ατόμων:
+                <input
+                  type="number"
+                  min="1"
+                  value={people}
+                  onChange={(e) => setPeople(e.target.value)}
+                />
+              </label>
+            </div>
 
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <input type="checkbox" checked={bread} onChange={(e) => setBread(e.target.checked)} />
-              Θέλουν ψωμί
-            </label>
+            <div className="input-group">
+              <label>
+                <input type="checkbox" checked={bread} onChange={(e) => setBread(e.target.checked)} />
+                🍞 Θέλουν ψωμί
+              </label>
+            </div>
           </div>
 
           {/* Display current order items */}
-          <div style={{ marginBottom: 12 }}>
-            {currentOrderItems.length === 0 ? (
-              <div style={{ color: '#666' }}>Δεν υπάρχουν παραγγελίες</div>
-            ) : (
-              currentOrderItems.map((item) => {
+          {currentOrderItems.length > 0 && (
+            <div className="order-items-list">
+              {currentOrderItems.map((item) => {
                 const qty = item && item.qty ? item.qty : 1;
                 const displayName = item && item.name ? item.name : item && item.text ? item.text : '(άγνωστο)';
                 const isStruck = item && (item.status === 'done' || item.status === 'cancelled');
+                const statusClass = item.status === 'pending' ? 'status-pending' : item.status === 'done' ? 'status-done' : 'status-cancelled';
+
                 return (
-                  <div
-                    key={item.id}
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      padding: 6,
-                      borderBottom: '1px dashed #eee',
-                    }}
-                  >
-                    <div style={{ textDecoration: isStruck ? 'line-through' : 'none', fontSize: 18 }}>
+                  <div key={item.id} className="order-item">
+                    <div className={`item-name ${isStruck ? 'struck' : ''}`}>
                       {qty > 1 ? `${qty}× ` : ''}
                       {displayName}
                     </div>
-                    <div
-                      style={{
-                        fontSize: 12,
-                        color: '#666',
-                        minWidth: 120,
-                        textAlign: 'right',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'flex-end',
-                      }}
-                    >
-                      <div>{item.status === 'pending' ? 'εκκρεμεί' : item.status === 'done' ? 'έτοιμο' : 'ακυρωμένο'}</div>
-                      <div style={{ marginTop: 4 }}>
-                        {item && item.unit_price !== null && item.unit_price !== undefined && item.line_total !== null && item.line_total !== undefined ? (
-                          <div style={{ fontSize: 12 }}>
-                            {qty}× {formatPrice(item.unit_price)} = {formatPrice(item.line_total)}
-                          </div>
-                        ) : (
-                          <div style={{ fontSize: 12, color: '#999' }}>—</div>
-                        )}
+                    <div className="item-details">
+                      <div className={`item-status ${statusClass}`}>
+                        {item.status === 'pending' ? '⏳ εκκρεμεί' : item.status === 'done' ? '✓ έτοιμο' : '✗ ακυρωμένο'}
                       </div>
+                      {item && item.unit_price !== null && item.unit_price !== undefined && item.line_total !== null && item.line_total !== undefined ? (
+                        <div className="item-price">
+                          {qty}× {formatPrice(item.unit_price)} = {formatPrice(item.line_total)}
+                        </div>
+                      ) : (
+                        <div className="item-price">—</div>
+                      )}
                     </div>
                   </div>
                 );
-              })
-            )}
-          </div>
+              })}
+            </div>
+          )}
 
           <textarea
+            className="order-textarea"
             value={orderText}
             onChange={(e) => setOrderText(e.target.value)}
             rows={10}
-            style={{ width: '100%', fontSize: 18, padding: 12 }}
             placeholder="Γράψτε την παραγγελία — κάθε πιάτο σε νέα γραμμή"
           />
 
-          <div style={{ display: 'flex', gap: 12, marginTop: 12 }}>
+          <div className="action-buttons">
             <button
+              className="btn btn-primary"
               onClick={handleSubmitOrder}
               disabled={loading}
-              style={{
-                padding: '12px 24px',
-                fontSize: 18,
-                backgroundColor: '#007bff',
-                color: '#fff',
-                border: 'none',
-                borderRadius: 8,
-                cursor: loading ? 'not-allowed' : 'pointer',
-              }}
             >
-              {loading ? 'ΑΠΟΣΤΟΛΗ...' : tables[selectedTable] && tables[selectedTable].length > 0 ? 'ΕΠΕΞΕΡΓΑΣΙΑ' : 'ΑΠΟΣΤΟΛΗ'}
+              {loading ? '⏳ ΑΠΟΣΤΟΛΗ...' : tables[selectedTable] && tables[selectedTable].length > 0 ? '✏️ ΕΠΕΞΕΡΓΑΣΙΑ' : '📤 ΑΠΟΣΤΟΛΗ'}
             </button>
 
             {tables[selectedTable] && tables[selectedTable].length > 0 && tables[selectedTable].every((it) => it && (it.status === 'done' || it.status === 'cancelled')) && (
-              <button
-                onClick={handleFinalizeTable}
-                style={{
-                  padding: '12px 24px',
-                  fontSize: 18,
-                  backgroundColor: '#4a90e2',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: 8,
-                  cursor: 'pointer',
-                }}
-              >
-                ΟΛΟΚΛΗΡΩΣΗ ΤΡΑΠΕΖΙΟΥ
-              </button>
+              <>
+                <div className="total-badge">
+                  💰 Σύνολο: {formatPrice(subtotalKnown)}
+                  {hasUnknownPrices && (
+                    <span className="total-note">(κάποια είδη χωρίς τιμή)</span>
+                  )}
+                </div>
+
+                <button
+                  className="btn btn-success"
+                  onClick={handleFinalizeTable}
+                >
+                  ✓ ΟΛΟΚΛΗΡΩΣΗ ΤΡΑΠΕΖΙΟΥ
+                </button>
+              </>
             )}
 
             <button
+              className="btn btn-secondary"
               onClick={() => {
                 setSelectedTable(null);
                 setOrderText('');
                 setPeople('');
                 setBread(false);
               }}
-              style={{ padding: '12px 24px', fontSize: 18 }}
             >
-              ΑΚΥΡΟ
+              ← ΑΚΥΡΟ
             </button>
           </div>
         </div>
