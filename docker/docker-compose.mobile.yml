@@ -8,7 +8,7 @@ services:
   # Backend service
   backend:
     build:
-      context: ./backend
+      context: ../backend
       dockerfile: Dockerfile
     container_name: tavern-backend
     ports:
@@ -17,7 +17,7 @@ services:
       - PYTHONUNBUFFERED=1
     volumes:
       # Mount data directory for menu.json
-      - ./backend/data:/app/data
+      - ../backend/data:/app/data
     restart: unless-stopped
     networks:
       - tavern-network
@@ -31,8 +31,8 @@ services:
   # Mobile App (PWA)
   mobile-app:
     build:
-      context: ./mobile-app
-      dockerfile: ../Dockerfile.frontend
+      context: ../mobile-app
+      dockerfile: ../docker/Dockerfile.frontend
     container_name: tavern-mobile-app
     ports:
       - "5177:80"

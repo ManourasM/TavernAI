@@ -1,7 +1,39 @@
+# Ignore local-ai-transcript-app folder
+local-ai-transcript-app/
+
+# Python
 backend/venv/
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Node
 node_modules/
 dist/
-test_backend.py
+dev-dist/
+.vite/
+
+# Environment
 .env
+.env.local
+.env.*.local
+
+# Test files
+test_backend.py
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*

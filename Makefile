@@ -25,39 +25,39 @@ help:
 
 # Production commands
 build:
-	docker-compose build
+	docker-compose -f docker/docker-compose.yml build
 
 up:
-	docker-compose up -d
+	docker-compose -f docker/docker-compose.yml up -d
 
 down:
-	docker-compose down
+	docker-compose -f docker/docker-compose.yml down
 
 logs:
-	docker-compose logs -f
+	docker-compose -f docker/docker-compose.yml logs -f
 
 restart:
-	docker-compose restart
+	docker-compose -f docker/docker-compose.yml restart
 
 # Development commands
 dev:
-	docker-compose -f docker-compose.dev.yml up
+	docker-compose -f docker/docker-compose.dev.yml up
 
 dev-down:
-	docker-compose -f docker-compose.dev.yml down
+	docker-compose -f docker/docker-compose.dev.yml down
 
 dev-logs:
-	docker-compose -f docker-compose.dev.yml logs -f
+	docker-compose -f docker/docker-compose.dev.yml logs -f
 
 # Mobile App Only commands
 mobile-only:
-	docker-compose up -d backend mobile-app
+	docker-compose -f docker/docker-compose.mobile.yml up -d
 
 mobile-dev:
-	docker-compose -f docker-compose.dev.yml up backend mobile-app
+	docker-compose -f docker/docker-compose.dev.yml up backend mobile-app
 
 # Cleanup
 clean:
-	docker-compose down -v --rmi all
-	docker-compose -f docker-compose.dev.yml down -v --rmi all
+	docker-compose -f docker/docker-compose.yml down -v --rmi all
+	docker-compose -f docker/docker-compose.dev.yml down -v --rmi all
 

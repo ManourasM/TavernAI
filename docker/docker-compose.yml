@@ -4,7 +4,7 @@ services:
   # Backend service
   backend:
     build:
-      context: ./backend
+      context: ../backend
       dockerfile: Dockerfile
     container_name: tavern-backend
     ports:
@@ -13,7 +13,7 @@ services:
       - PYTHONUNBUFFERED=1
     volumes:
       # Mount data directory for menu.json
-      - ./backend/data:/app/data
+      - ../backend/data:/app/data
     restart: unless-stopped
     networks:
       - tavern-network
@@ -27,8 +27,8 @@ services:
   # Waiter UI
   waiter-ui:
     build:
-      context: ./waiter-ui
-      dockerfile: ../Dockerfile.frontend
+      context: ../waiter-ui
+      dockerfile: ../docker/Dockerfile.frontend
     container_name: tavern-waiter-ui
     ports:
       - "5173:80"
@@ -43,8 +43,8 @@ services:
   # Kitchen UI
   kitchen-ui:
     build:
-      context: ./kitchen-ui
-      dockerfile: ../Dockerfile.frontend
+      context: ../kitchen-ui
+      dockerfile: ../docker/Dockerfile.frontend
     container_name: tavern-kitchen-ui
     ports:
       - "5175:80"
@@ -59,8 +59,8 @@ services:
   # Grill UI
   grill-ui:
     build:
-      context: ./grill-ui
-      dockerfile: ../Dockerfile.frontend
+      context: ../grill-ui
+      dockerfile: ../docker/Dockerfile.frontend
     container_name: tavern-grill-ui
     ports:
       - "5174:80"
@@ -75,8 +75,8 @@ services:
   # Drinks UI
   drinks-ui:
     build:
-      context: ./drinks-ui
-      dockerfile: ../Dockerfile.frontend
+      context: ../drinks-ui
+      dockerfile: ../docker/Dockerfile.frontend
     container_name: tavern-drinks-ui
     ports:
       - "5176:80"
@@ -91,8 +91,8 @@ services:
   # Mobile App (PWA)
   mobile-app:
     build:
-      context: ./mobile-app
-      dockerfile: ../Dockerfile.frontend
+      context: ../mobile-app
+      dockerfile: ../docker/Dockerfile.frontend
     container_name: tavern-mobile-app
     ports:
       - "5177:80"

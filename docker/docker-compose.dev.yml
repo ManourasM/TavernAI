@@ -4,7 +4,7 @@ services:
   # Backend service with hot-reload
   backend:
     build:
-      context: ./backend
+      context: ../backend
       dockerfile: Dockerfile
     container_name: tavern-backend-dev
     ports:
@@ -13,8 +13,8 @@ services:
       - PYTHONUNBUFFERED=1
     volumes:
       # Mount source code for hot-reload
-      - ./backend/app:/app/app
-      - ./backend/data:/app/data
+      - ../backend/app:/app/app
+      - ../backend/data:/app/data
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     restart: unless-stopped
     networks:
@@ -32,7 +32,7 @@ services:
       - VITE_BACKEND_URL=http://backend:8000
       - VITE_BACKEND_WS_URL=ws://backend:8000
     volumes:
-      - ./waiter-ui:/app
+      - ../waiter-ui:/app
       - /app/node_modules
     command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
     depends_on:
@@ -53,7 +53,7 @@ services:
       - VITE_BACKEND_URL=http://backend:8000
       - VITE_BACKEND_WS_URL=ws://backend:8000
     volumes:
-      - ./kitchen-ui:/app
+      - ../kitchen-ui:/app
       - /app/node_modules
     command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
     depends_on:
@@ -74,7 +74,7 @@ services:
       - VITE_BACKEND_URL=http://backend:8000
       - VITE_BACKEND_WS_URL=ws://backend:8000
     volumes:
-      - ./grill-ui:/app
+      - ../grill-ui:/app
       - /app/node_modules
     command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
     depends_on:
@@ -95,7 +95,7 @@ services:
       - VITE_BACKEND_URL=http://backend:8000
       - VITE_BACKEND_WS_URL=ws://backend:8000
     volumes:
-      - ./drinks-ui:/app
+      - ../drinks-ui:/app
       - /app/node_modules
     command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
     depends_on:
@@ -116,7 +116,7 @@ services:
       - VITE_BACKEND_URL=http://backend:8000
       - VITE_BACKEND_WS_URL=ws://backend:8000
     volumes:
-      - ./mobile-app:/app
+      - ../mobile-app:/app
       - /app/node_modules
     command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
     depends_on:
