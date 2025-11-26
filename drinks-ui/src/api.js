@@ -24,15 +24,8 @@ export async function refreshConfig() {
 }
 
 async function getConfig() {
-  console.log("[getConfig] called, cache exists?", !!_configCache, "promise exists?", !!_configPromise);
-  if (_configCache) {
-    console.log("[getConfig] returning cached config:", _configCache);
-    return _configCache;
-  }
-  if (_configPromise) {
-    console.log("[getConfig] returning existing promise");
-    return _configPromise;
-  }
+  if (_configCache) return _configCache;
+  if (_configPromise) return _configPromise;
 
   _configPromise = (async () => {
     const tries = [
@@ -44,12 +37,10 @@ async function getConfig() {
 
     for (const url of tries) {
       try {
-        console.log("[config] trying", url);
+        console.debug("[config] trying", url);
         const res = await fetch(url, { cache: "no-store" });
-        console.log("[config] response from", url, "status:", res.status);
         if (res.ok) {
           const j = await res.json();
-          console.log("[config] got config:", j);
           const raw_backend_base = j.backend_base || "";
           const raw_ws_base = j.ws_base || null;
           const port = j.backend_port || (raw_backend_base ? (new URL(raw_backend_base)).port : 8000);
@@ -95,13 +86,13 @@ async function getConfig() {
             ws_base: ws_base || `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}`,
             backend_port: port || (location.port ? Number(location.port) : 8000)
           };
-          console.log("[config] ✅ resolved:", _configCache);
+          console.debug("[config] resolved:", _configCache);
           return _configCache;
         } else {
-          console.log("[config] ❌ not ok:", url, res.status);
+          console.debug("[config] not ok:", url, res.status);
         }
       } catch (e) {
-        console.log("[config] ❌ fetch failed for", url, e.message);
+        console.debug("[config] fetch failed for", url, e);
       }
     }
 
@@ -111,26 +102,12 @@ async function getConfig() {
       ws_base: `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}`,
       backend_port: location.port ? Number(location.port) : 80
     };
-    console.log("[config] ⚠️ falling back to page origin:", fallback);
+    console.debug("[config] falling back to page origin:", fallback);
     _configCache = fallback;
     return _configCache;
   })();
 
-  try {
-    const result = await _configPromise;
-    console.log("[config] final result:", result);
-    return result;
-  } catch (e) {
-    console.error("[config] ERROR:", e);
-    // Return a basic fallback even if promise fails
-    const emergencyFallback = {
-      backend_base: `${location.protocol}//${location.host}`,
-      ws_base: `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}`,
-      backend_port: location.port ? Number(location.port) : 80
-    };
-    _configCache = emergencyFallback;
-    return emergencyFallback;
-  }
+  return _configPromise;
 }
 
 function ensureLeadingSlash(path) {
@@ -139,15 +116,10 @@ function ensureLeadingSlash(path) {
 }
 
 async function buildHttpUrl(path) {
-  console.log("[buildHttpUrl] getting config for path:", path);
-  console.log("[buildHttpUrl] about to call getConfig()");
   const cfg = await getConfig();
-  console.log("[buildHttpUrl] getConfig() returned:", cfg);
   const base = (cfg && cfg.backend_base) ? String(cfg.backend_base).replace(/\/$/, "") : "";
-  console.log("[buildHttpUrl] base:", base);
-  const url = `${base}${ensureLeadingSlash(path)}`;
-  console.log("[buildHttpUrl] built URL:", url);
-  return url;
+  // Allow caller to pass a path that may include query string already
+  return `${base}${ensureLeadingSlash(path)}`;
 }
 
 async function buildWsUrl(station) {
@@ -165,33 +137,17 @@ async function buildWsUrl(station) {
    ---------------------------*/
 
 export async function postOrder(table, orderText, people = null, bread = false) {
-  console.log("[api.postOrder] START", { table, orderText, people, bread });
   const payload = { table, order_text: orderText };
   if (people !== null) payload.people = people;
   payload.bread = !!bread;
-  console.log("[api.postOrder] payload created:", payload);
-
-  console.log("[api.postOrder] calling buildHttpUrl...");
   const url = await buildHttpUrl("/order/");
-  console.log("[api.postOrder] got URL:", url);
-
-  console.log("[api] POST", url, payload);
-  console.log("[api.postOrder] calling fetch...");
+  console.debug("[api] POST", url, payload);
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  console.log("[api.postOrder] fetch completed");
-  console.log("[api] POST response status:", res.status, res.statusText);
-  if (!res.ok) {
-    const errorText = await res.text();
-    console.error("[api] POST failed:", res.status, errorText);
-    throw new Error(`HTTP ${res.status}: ${errorText}`);
-  }
-  const result = await res.json();
-  console.log("[api] POST result:", result);
-  return result;
+  return await res.json();
 }
 
 export async function putOrder(table, orderText, people = null, bread = false) {
@@ -199,21 +155,13 @@ export async function putOrder(table, orderText, people = null, bread = false) {
   if (people !== null) payload.people = people;
   payload.bread = !!bread;
   const url = await buildHttpUrl(`/order/${table}`);
-  console.log("[api] PUT", url, payload);
+  console.debug("[api] PUT", url, payload);
   const res = await fetch(url, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  console.log("[api] PUT response status:", res.status, res.statusText);
-  if (!res.ok) {
-    const errorText = await res.text();
-    console.error("[api] PUT failed:", res.status, errorText);
-    throw new Error(`HTTP ${res.status}: ${errorText}`);
-  }
-  const result = await res.json();
-  console.log("[api] PUT result:", result);
-  return result;
+  return await res.json();
 }
 
 export async function getOrders(includeHistory = false) {

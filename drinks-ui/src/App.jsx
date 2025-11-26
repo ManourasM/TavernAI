@@ -4,10 +4,9 @@ import { createWS, getOrders, markDone } from "./api";
 import { useSounds } from "./utils/sounds";
 
 /**
- * Station UI (kitchen or grill).
- * To make grill UI set station = "grill".
+ * Station UI (drinks).
  */
-const station = "grill"; // change to "grill" in grill project
+const station = "drinks"; // drinks station
 
 export default function App() {
   const [ordersMap, setOrdersMap] = useState({}); // { tableStr: { table, items: [...], meta } }
@@ -20,8 +19,7 @@ export default function App() {
   // --- Helpers ---
   function itemForThisStation(item) {
     if (!item) return false;
-    if (station === "grill") return item.category === "grill";
-    return item.category !== "grill";
+    return item.category === "drinks";
   }
 
   function upsertItem(item) {
@@ -272,7 +270,7 @@ function rootKey(text) {
         </button>
       </div>
 
-      <h1 style={{ textAlign: "center", marginBottom: 12, color: "#fff" }}>{station === "grill" ? "ΨΗΣΤΑΡΙΑ" : "ΚΟΥΖΙΝΑ"}</h1>
+      <h1 style={{ textAlign: "center", marginBottom: 12, color: "#fff" }}>ΠΟΤΑ</h1>
 
       <div style={{
         display: "flex",
@@ -314,7 +312,7 @@ function rootKey(text) {
         <div style={{ width: 320, minWidth: 260 }}>
           <div style={{ fontWeight: 700, marginBottom: 10, color: "#fff" }}>ΣΥΝΟΛΙΚΑ — {aggregated.length} είδη</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {aggregated.length === 0 && <div style={{ color: "#ddd" }}>Δεν υπάρχουν πιάτα προς εκτέλεση</div>}
+            {aggregated.length === 0 && <div style={{ color: "#ddd" }}>Δεν υπάρχουν ποτά προς εκτέλεση</div>}
             {aggregated.map(entry => (
               <div key={entry.key} style={{ background: styles.cardBg, padding: 12, borderRadius: 8, boxShadow: "0 2px 6px rgba(0,0,0,0.08)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div>
@@ -339,3 +337,4 @@ function rootKey(text) {
     </div>
   );
 }
+

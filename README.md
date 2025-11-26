@@ -1,13 +1,27 @@
-# TavernAI
-A lightweight, local network tavern ordering app with three frontends and a small FastAPI backend:
+# TavernAI - Tavern Ordering System
 
-Waiter UI - create / edit table orders, set table meta (people, bread), finalize table
+A modern, lightweight tavern ordering and management system that runs entirely on your local network.
 
-Kitchen UI - see kitchen items (non-grill), confirm items as done
+## 🎯 What's Included
 
-Grill UI - see grill items, confirm items as done
+**Mobile App (PWA)** — All-in-one Progressive Web App with:
+- Waiter interface for table management
+- Kitchen, Grill, and Drinks station views
+- Admin panel for menu and user management
+- Works on phones, tablets, and computers
+- Can be installed as a native app
 
-Backend (FastAPI) - stores orders in-memory (MVP), exposes REST + WebSocket endpoints, simple NLP to classify lines into grill / kitchen / drinks
+**Legacy UIs** — Individual interfaces for:
+- Waiter UI — Create/edit table orders, set table metadata, finalize tables
+- Kitchen UI — View and confirm kitchen items
+- Grill UI — View and confirm grill items
+- Drinks UI — View and confirm drink orders
+
+**Backend (FastAPI)** — Lightweight server with:
+- REST API + WebSocket for real-time updates
+- Greek NLP for automatic item classification
+- Menu management with 97 items
+- In-memory storage (MVP)
 
 ## The problem
 
@@ -45,63 +59,182 @@ When the table is finalized, TavernAI automatically calculates the total cost us
 
 In short, TavernAI turns a traditional taverna's chaotic, paper-based workflow into a real-time, efficient, and fully connected system. It preserves the simplicity of a traditional setting while introducing the power of modern AI and automation.
 
+## 🚀 Quick Start
 
-# Screenshots 
+### Option 1: Docker (Recommended)
 
-<div align="center">
+The easiest way to run TavernAI is using Docker:
 
-<hr/>
+```bash
+# Mobile App Only (Recommended for most users)
+make mobile-only
+# or
+docker-compose -f docker/docker-compose.mobile.yml up -d
 
-<h4>Waiter Interface</h4>
-<img src="https://github.com/user-attachments/assets/5707eafb-b0dc-4548-8820-64514d70910f" 
-     alt="Waiter interface" 
-     width="600" 
-     style="border: 2px solid #ccc; border-radius: 10px; margin: 10px;"/>
+# All Services (Mobile App + Legacy UIs)
+make up
+# or
+docker-compose -f docker/docker-compose.yml up -d
 
-<hr/>
+# Development Mode (with hot-reload)
+make mobile-dev
+# or
+make dev
+```
 
-<h4>Order Editing Screen</h4>
-<img src="https://github.com/user-attachments/assets/62e7c7df-d148-432f-8ef1-cb5f2502ca52" 
-     alt="Order editing screen" 
-     width="450" 
-     style="border: 2px solid #ccc; border-radius: 10px; margin: 10px;"/>
+**Access the applications:**
+- 🌟 **Mobile App (PWA)**: http://localhost:5177
+- **Waiter UI**: http://localhost:5173
+- **Kitchen UI**: http://localhost:5175
+- **Grill UI**: http://localhost:5174
+- **Drinks UI**: http://localhost:5176
+- **Backend API**: http://localhost:8000
 
-<hr/>
+**Access from your phone:**
+1. Find your computer's IP: `ipconfig` (Windows) or `ifconfig` (Linux/Mac)
+2. Open browser on phone: `http://YOUR_IP:5177`
+3. Install as PWA for best experience!
 
-<h4>Kitchen Interface</h4>
-<img src="https://github.com/user-attachments/assets/f68a7a43-ee80-4b3e-a3d9-ff8d71795ae2" 
-     alt="Kitchen interface" 
-     width="800" 
-     style="border: 2px solid #ccc; border-radius: 10px; margin: 10px;"/>
+For detailed Docker instructions, see [docs/DOCKER.md](docs/DOCKER.md).
 
-<hr/>
+### Option 2: Manual Setup (Windows)
 
-<h4>Finalized Table View</h4>
-<img src="https://github.com/user-attachments/assets/c997435b-49c5-4fd9-9e18-da14986017e7" 
-     alt="Finalized table view" 
-     width="750" 
-     style="border: 2px solid #ccc; border-radius: 10px; margin: 10px;"/>
+#### Backend Setup
 
-<hr/>
+```bash
+cd backend
+setup.bat
+start.bat
+```
 
-<h4>Edit Table View</h4>
-<img src="https://github.com/user-attachments/assets/831f2dea-f13c-4ffb-a0c7-e0ee30c51a04" 
-     alt="Edit table view" 
-     width="500" 
-     style="border: 2px solid #ccc; border-radius: 10px; margin: 10px;"/>
+The backend will start on `http://0.0.0.0:8000` (accessible from network).
 
-<hr/>
+#### Mobile App Setup
 
-</div>
+```bash
+cd mobile-app
+npm install
+npm run dev
+```
 
+The mobile app will start on `http://localhost:5177`.
 
+For detailed setup instructions, see [mobile-app/QUICK_START.md](mobile-app/QUICK_START.md).
 
+## ✨ Features
 
+### Mobile App (PWA)
+- ✅ **All-in-one interface** - Waiter, Kitchen, Grill, Drinks, and Admin in one app
+- ✅ **Progressive Web App** - Install on any device, works offline
+- ✅ **Modern UI** - Professional design with Greek language support
+- ✅ **17 Tables** - Color-coded status (free, occupied, finalized)
+- ✅ **Real-time updates** - WebSocket-based live synchronization
+- ✅ **Sound notifications** - Audio alerts for new orders and completions
+- ✅ **Item aggregation** - Smart grouping of items by station
+- ✅ **Total price calculation** - Automatic pricing from menu.json
+- ✅ **Menu management** - 97 items organized by category
+- ✅ **Network accessible** - Access from any device on your network
 
+### Backend
+- ✅ **Greek NLP** - Automatic classification of Greek menu items
+- ✅ **Multi-station routing** - Smart routing to kitchen, grill, or drinks
+- ✅ **WebSocket support** - Real-time bidirectional communication
+- ✅ **REST API** - Full CRUD operations for orders and items
+- ✅ **Offline-first** - Runs entirely on local network, no internet required
+- ✅ **Smart matching** - Unit-aware menu item matching (kg, λ, ml, portions)
+- ✅ **Price preservation** - Maintains custom pricing for unmatched items
+- ✅ **Special instructions** - Handles notes like "(χωρίς σάλτσα)"
 
-# Demo Video
+## 📁 Project Structure
 
+```
+TavernAI/
+├── backend/              # FastAPI backend server
+│   ├── app/             # Application code
+│   ├── data/            # Menu data (menu.json)
+│   ├── setup.bat        # Windows setup script
+│   └── start.bat        # Windows start script
+├── mobile-app/          # Mobile PWA (All-in-one)
+│   ├── src/             # React source code
+│   ├── public/          # Static assets
+│   └── docs/            # Mobile app documentation
+├── waiter-ui/           # Legacy waiter interface
+├── kitchen-ui/          # Legacy kitchen interface
+├── grill-ui/            # Legacy grill interface
+├── drinks-ui/           # Legacy drinks interface
+├── docker/              # Docker configuration
+│   ├── docker-compose.yml           # Production setup
+│   ├── docker-compose.dev.yml       # Development setup
+│   ├── docker-compose.mobile.yml    # Mobile-only setup
+│   ├── Dockerfile.frontend          # Frontend build
+│   └── nginx.conf                   # Nginx config
+├── docs/                # Documentation
+│   ├── DOCKER.md                    # Docker guide
+│   ├── DOCKER_QUICK_REFERENCE.md    # Quick reference
+│   └── ...
+├── Makefile             # Docker shortcuts
+└── README.md            # This file
+```
 
-https://github.com/user-attachments/assets/5b64ae28-2452-437b-baee-6cb580f055b8
+## 📚 Documentation
 
+- **[docs/DOCKER.md](docs/DOCKER.md)** - Complete Docker setup guide
+- **[docs/DOCKER_QUICK_REFERENCE.md](docs/DOCKER_QUICK_REFERENCE.md)** - Quick command reference
+- **[mobile-app/QUICK_START.md](mobile-app/QUICK_START.md)** - Mobile app quick start
+- **[mobile-app/DOCKER_GUIDE.md](mobile-app/DOCKER_GUIDE.md)** - Mobile app Docker guide
+- **[mobile-app/PWA_DEPLOYMENT.md](mobile-app/PWA_DEPLOYMENT.md)** - PWA deployment guide
+
+## 🛠️ Technology Stack
+
+**Frontend:**
+- React 18
+- Vite
+- Zustand (state management)
+- PWA (Progressive Web App)
+- WebSocket client
+
+**Backend:**
+- FastAPI
+- Python 3.12
+- spaCy (Greek NLP)
+- WebSocket server
+- Uvicorn
+
+**DevOps:**
+- Docker & Docker Compose
+- Nginx (production)
+- Multi-stage builds
+
+## 📱 Screenshots
+
+<img width="400" height="400" alt="Screenshot 2025-10-13 142805" src="https://github.com/user-attachments/assets/e5fba5db-f395-49c0-bbc5-bb45ab57fa91" />
+<img width="400" height="400" alt="Screenshot 2025-10-13 142514" src="https://github.com/user-attachments/assets/a2d1ea43-3524-4366-b213-d7e8961575ef" />
+<img width="400" height="400" alt="Screenshot 2025-10-13 142621" src="https://github.com/user-attachments/assets/c164b4bb-ceb0-4da5-bb08-b5c2637aef2a" />
+<img width="400" height="400" alt="Screenshot 2025-10-13 142723" src="https://github.com/user-attachments/assets/6b88df79-9ecc-49f3-8986-e146bb575396" />
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## 💡 Use Cases
+
+Perfect for:
+- Traditional Greek taverns
+- Small restaurants
+- Family-owned eateries
+- Any establishment wanting to digitize their ordering process
+- Offline-first environments without reliable internet
+
+## 🌟 Why TavernAI?
+
+- **No internet required** - Runs entirely on local network
+- **Simple setup** - Docker or manual, your choice
+- **Modern UI** - Professional design that's easy to use
+- **Greek language** - Built for Greek taverns
+- **Real-time** - Instant updates across all stations
+- **Free & Open Source** - MIT licensed
 
