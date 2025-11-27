@@ -218,6 +218,9 @@ TavernAI/
 <img width="320" height="180" alt="Screenshot 2025-11-26 150446" src="https://github.com/user-attachments/assets/e82a5cd1-097a-4033-91c5-625a1bb18176" />
 <img width="320" height="180" alt="Screenshot 2025-11-26 150515" src="https://github.com/user-attachments/assets/078ad34a-e677-4c9f-82ad-99a2ec1a46b2" />
 
+## 🎥 Demo video
+
+https://github.com/user-attachments/assets/7689716b-ea6b-4d6c-99d7-0ae170d0a54c
 
 
 ## 📄 License
