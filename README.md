@@ -2,7 +2,7 @@
 
 A modern, lightweight tavern ordering and management system that runs entirely on your local network.
 
-## 🎯 What's Included
+## What's Included
 
 **Mobile App (PWA)** — All-in-one Progressive Web App with:
 - Waiter interface for table management
@@ -59,7 +59,7 @@ When the table is finalized, TavernAI automatically calculates the total cost us
 
 In short, TavernAI turns a traditional taverna's chaotic, paper-based workflow into a real-time, efficient, and fully connected system. It preserves the simplicity of a traditional setting while introducing the power of modern AI and automation.
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Option 1: Docker (Recommended)
 
@@ -83,7 +83,7 @@ make dev
 ```
 
 **Access the applications:**
-- 🌟 **Mobile App (PWA)**: http://localhost:5177
+- **Mobile App (PWA)**: http://localhost:5177
 - **Waiter UI**: http://localhost:5173
 - **Kitchen UI**: http://localhost:5175
 - **Grill UI**: http://localhost:5174
@@ -121,7 +121,7 @@ The mobile app will start on `http://localhost:5177`.
 
 For detailed setup instructions, see [mobile-app/QUICK_START.md](mobile-app/QUICK_START.md).
 
-## ✨ Features
+## Features
 
 ### Mobile App (PWA)
 - ✅ **All-in-one interface** - Waiter, Kitchen, Grill, Drinks, and Admin in one app
@@ -145,38 +145,7 @@ For detailed setup instructions, see [mobile-app/QUICK_START.md](mobile-app/QUIC
 - ✅ **Price preservation** - Maintains custom pricing for unmatched items
 - ✅ **Special instructions** - Handles notes like "(χωρίς σάλτσα)"
 
-## 📁 Project Structure
-
-```
-TavernAI/
-├── backend/              # FastAPI backend server
-│   ├── app/             # Application code
-│   ├── data/            # Menu data (menu.json)
-│   ├── setup.bat        # Windows setup script
-│   └── start.bat        # Windows start script
-├── mobile-app/          # Mobile PWA (All-in-one)
-│   ├── src/             # React source code
-│   ├── public/          # Static assets
-│   └── docs/            # Mobile app documentation
-├── waiter-ui/           # Legacy waiter interface
-├── kitchen-ui/          # Legacy kitchen interface
-├── grill-ui/            # Legacy grill interface
-├── drinks-ui/           # Legacy drinks interface
-├── docker/              # Docker configuration
-│   ├── docker-compose.yml           # Production setup
-│   ├── docker-compose.dev.yml       # Development setup
-│   ├── docker-compose.mobile.yml    # Mobile-only setup
-│   ├── Dockerfile.frontend          # Frontend build
-│   └── nginx.conf                   # Nginx config
-├── docs/                # Documentation
-│   ├── DOCKER.md                    # Docker guide
-│   ├── DOCKER_QUICK_REFERENCE.md    # Quick reference
-│   └── ...
-├── Makefile             # Docker shortcuts
-└── README.md            # This file
-```
-
-## 📚 Documentation
+## Documentation
 
 - **[docs/DOCKER.md](docs/DOCKER.md)** - Complete Docker setup guide
 - **[docs/DOCKER_QUICK_REFERENCE.md](docs/DOCKER_QUICK_REFERENCE.md)** - Quick command reference
@@ -184,7 +153,7 @@ TavernAI/
 - **[mobile-app/DOCKER_GUIDE.md](mobile-app/DOCKER_GUIDE.md)** - Mobile app Docker guide
 - **[mobile-app/PWA_DEPLOYMENT.md](mobile-app/PWA_DEPLOYMENT.md)** - PWA deployment guide
 
-## 🛠️ Technology Stack
+## Technology Stack
 
 **Frontend:**
 - React 18
@@ -205,7 +174,7 @@ TavernAI/
 - Nginx (production)
 - Multi-stage builds
 
-## 📱 Screenshots
+## Screenshots
 <img width="320" height="180" alt="Screenshot 2025-11-26 150123" src="https://github.com/user-attachments/assets/14980e65-be65-4d58-8278-f3afae7cc9b6" />
 <img width="320" height="180" alt="Screenshot 2025-11-26 150530" src="https://github.com/user-attachments/assets/0d5f9bfb-8469-4e9b-96e9-0c97d2052f86" />
 <img width="320" height="180" alt="Screenshot 2025-11-26 150151" src="https://github.com/user-attachments/assets/f6bd8343-03ba-47c7-a337-dc12bfbceb95" />
@@ -218,20 +187,15 @@ TavernAI/
 <img width="320" height="180" alt="Screenshot 2025-11-26 150446" src="https://github.com/user-attachments/assets/e82a5cd1-097a-4033-91c5-625a1bb18176" />
 <img width="320" height="180" alt="Screenshot 2025-11-26 150515" src="https://github.com/user-attachments/assets/078ad34a-e677-4c9f-82ad-99a2ec1a46b2" />
 
-## 🎥 Demo video
+## Demo video
 
 https://github.com/user-attachments/assets/7689716b-ea6b-4d6c-99d7-0ae170d0a54c
 
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🤝 Contributing
+## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
-## 💡 Use Cases
+## Use Cases
 
 Perfect for:
 - Traditional Greek taverns
@@ -240,7 +204,7 @@ Perfect for:
 - Any establishment wanting to digitize their ordering process
 - Offline-first environments without reliable internet
 
-## 🌟 Why TavernAI?
+## Why TavernAI?
 
 - **No internet required** - Runs entirely on local network
 - **Simple setup** - Docker or manual, your choice
