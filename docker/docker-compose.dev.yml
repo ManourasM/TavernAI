@@ -29,8 +29,8 @@ services:
       - "5173:5173"
     environment:
       - NODE_ENV=development
-      - VITE_BACKEND_URL=http://backend:8000
-      - VITE_BACKEND_WS_URL=ws://backend:8000
+      - VITE_BACKEND_URL=http://localhost:8000
+      - VITE_BACKEND_WS_URL=ws://localhost:8000
     volumes:
       - ../waiter-ui:/app
       - /app/node_modules
@@ -50,8 +50,8 @@ services:
       - "5175:5175"
     environment:
       - NODE_ENV=development
-      - VITE_BACKEND_URL=http://backend:8000
-      - VITE_BACKEND_WS_URL=ws://backend:8000
+      - VITE_BACKEND_URL=http://localhost:8000
+      - VITE_BACKEND_WS_URL=ws://localhost:8000
     volumes:
       - ../kitchen-ui:/app
       - /app/node_modules
@@ -71,8 +71,8 @@ services:
       - "5174:5174"
     environment:
       - NODE_ENV=development
-      - VITE_BACKEND_URL=http://backend:8000
-      - VITE_BACKEND_WS_URL=ws://backend:8000
+      - VITE_BACKEND_URL=http://localhost:8000
+      - VITE_BACKEND_WS_URL=ws://localhost:8000
     volumes:
       - ../grill-ui:/app
       - /app/node_modules
@@ -92,8 +92,8 @@ services:
       - "5176:5176"
     environment:
       - NODE_ENV=development
-      - VITE_BACKEND_URL=http://backend:8000
-      - VITE_BACKEND_WS_URL=ws://backend:8000
+      - VITE_BACKEND_URL=http://localhost:8000
+      - VITE_BACKEND_WS_URL=ws://localhost:8000
     volumes:
       - ../drinks-ui:/app
       - /app/node_modules
@@ -113,8 +113,8 @@ services:
       - "5177:5177"
     environment:
       - NODE_ENV=development
-      - VITE_BACKEND_URL=http://backend:8000
-      - VITE_BACKEND_WS_URL=ws://backend:8000
+      - VITE_BACKEND_URL=http://localhost:8000
+      - VITE_BACKEND_WS_URL=ws://localhost:8000
     volumes:
       - ../mobile-app:/app
       - /app/node_modules
@@ -128,4 +128,3 @@ services:
 networks:
   tavern-network:
     driver: bridge
-

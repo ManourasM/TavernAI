@@ -15,6 +15,7 @@ dist/
 dev-dist/
 .vite/
 
+
 # Environment
 .env
 .env.local
@@ -22,7 +23,7 @@ dev-dist/
 
 # Test files
 test_backend.py
-
+.github/
 # IDE
 .vscode/
 .idea/
