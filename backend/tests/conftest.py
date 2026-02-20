@@ -16,9 +16,10 @@ from httpx import ASGITransport
 
 @pytest.fixture
 def reset_app_state():
-    """Reset in-memory state before each test."""
-    main_module.orders_by_table.clear()
-    main_module.table_meta.clear()
+    """Reset in-memory storage and station connections before each test."""
+    # Clear storage
+    app.state.storage.clear()
+    # Clear station connections
     main_module.station_connections.clear()
     main_module.station_connections["kitchen"] = []
     main_module.station_connections["grill"] = []
@@ -26,8 +27,7 @@ def reset_app_state():
     main_module.station_connections["waiter"] = []
     yield
     # Cleanup after test
-    main_module.orders_by_table.clear()
-    main_module.table_meta.clear()
+    app.state.storage.clear()
     main_module.station_connections.clear()
 
 

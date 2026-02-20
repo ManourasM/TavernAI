@@ -1,5 +1,5 @@
 import pytest
-from app.main import orders_by_table, table_meta
+from app.main import app
 
 
 @pytest.mark.asyncio
@@ -15,9 +15,10 @@ async def test_table_meta_update(async_client, reset_app_state):
     response = await async_client.post("/order/", json=payload)
     assert response.status_code == 200
     
-    # Check table meta
-    assert table_meta[1]["people"] == 4
-    assert table_meta[1]["bread"] is True
+    # Check table meta via storage
+    storage = app.state.storage
+    assert storage.get_table(1)["people"] == 4
+    assert storage.get_table(1)["bread"] is True
 
 
 @pytest.mark.asyncio

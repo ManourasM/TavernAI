@@ -1,5 +1,5 @@
 import pytest
-from app.main import orders_by_table, table_meta
+from app.main import app
 
 
 @pytest.mark.asyncio
@@ -19,11 +19,11 @@ async def test_submit_basic_greek_order(async_client, reset_app_state, mock_broa
     assert "created" in data
     assert len(data["created"]) == 2
     
-    # Verify state
-    assert 1 in orders_by_table
-    assert len(orders_by_table[1]) == 2
-    assert table_meta[1]["people"] == 2
-    assert table_meta[1]["bread"] is True
+    # Verify state via storage
+    storage = app.state.storage
+    assert len(storage.get_orders(1)) == 2
+    assert storage.get_table(1)["people"] == 2
+    assert storage.get_table(1)["bread"] is True
 
 
 @pytest.mark.asyncio

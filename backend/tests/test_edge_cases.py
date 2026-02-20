@@ -1,5 +1,4 @@
 import pytest
-from app.main import orders_by_table
 from app.nlp import classify_order
 
 
