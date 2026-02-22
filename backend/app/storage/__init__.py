@@ -3,5 +3,6 @@
 from .base import Storage
 from .inmemory import InMemoryStorage
 from .sqlite import SQLiteStorage
+from .sqlalchemy_adapter import SQLAlchemyStorage
 
-__all__ = ["Storage", "InMemoryStorage", "SQLiteStorage"]
+__all__ = ["Storage", "InMemoryStorage", "SQLiteStorage", "SQLAlchemyStorage"]

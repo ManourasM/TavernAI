@@ -6,12 +6,14 @@ Implements the Storage ABC interface exactly with explicit transaction blocks.
 """
 
 from typing import Dict, List, Any, Optional
+import os
 from sqlalchemy import create_engine, select, delete
 from sqlalchemy.orm import sessionmaker, Session
 from datetime import datetime, timedelta
 
 from app.storage.base import Storage
 from app.storage.models import Base, TableMetaModel, OrderModel
+from app.db import init_db
 
 
 class SQLiteStorage(Storage):
@@ -41,8 +43,11 @@ class SQLiteStorage(Storage):
         # Create sessionmaker
         self.SessionLocal = sessionmaker(bind=self.engine)
         
-        # Create all tables on startup
-        Base.metadata.create_all(self.engine)
+        # Initialize database schema
+        # In development: use_alembic=False for quick creation
+        # In production: set USE_ALEMBIC env var to true for migration tracking
+        use_alembic = os.getenv("USE_ALEMBIC", "false").lower() == "true"
+        init_db(self.engine, use_alembic=use_alembic, base=Base)
     
     def _get_session(self) -> Session:
         """Get a new database session (caller must close)."""

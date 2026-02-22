@@ -10,9 +10,15 @@ from collections import defaultdict
 from fastapi.middleware.cors import CORSMiddleware
 import re
 import unicodedata
+from sqlalchemy.orm import sessionmaker
 
 from app.nlp import classify_order, MENU_ITEMS  # Greek-capable classifier + menu lookup
-from app.storage import Storage, InMemoryStorage, SQLiteStorage  # Storage abstraction
+from app.storage import Storage, InMemoryStorage, SQLiteStorage, SQLAlchemyStorage  # Storage abstraction
+from app.api.menu_router import router as menu_router
+from app.api.receipts_router import router as receipts_router
+from app.api.nlp_router import router as nlp_router
+from app.api.auth_router import router as auth_router
+from app.db import order_utils  # Helper functions for normalized Order/OrderItem domain
 
 app = FastAPI(title="Tavern Ordering Backend (MVP)")
 
@@ -26,11 +32,24 @@ app.add_middleware(
 )
 
 # Initialize storage backend based on environment variable
-# Default: inmemory; can be set to "sqlite" for persistent storage
+# Options: "inmemory", "sqlite" (legacy), "sqlalchemy" (normalized models)
 storage_backend = os.getenv("STORAGE_BACKEND", "inmemory").lower()
 
-if storage_backend == "sqlite":
-    # Get restaurant ID (default to "default" if not set)
+if storage_backend == "sqlalchemy":
+    # Use normalized Order/OrderItem models
+    restaurant_id = os.getenv("RESTAURANT_ID", "default")
+    
+    # Create data directory if it doesn't exist
+    data_dir = os.path.join(os.getcwd(), "data")
+    os.makedirs(data_dir, exist_ok=True)
+    
+    # Construct database path: data/{restaurant_id}.db
+    db_path = os.path.join(data_dir, f"{restaurant_id}.db")
+    db_url = f"sqlite:///{db_path}"
+    
+    app.state.storage = SQLAlchemyStorage(db_url)
+elif storage_backend == "sqlite":
+    # Legacy SQLite storage (flat OrderModel)
     restaurant_id = os.getenv("RESTAURANT_ID", "default")
     
     # Create data directory if it doesn't exist
@@ -47,13 +66,65 @@ else:
     app.state.storage = InMemoryStorage()
 
 
+# ---------- Register API routers ----------
+# Wire in the menu management router
+app.include_router(menu_router)
+# Wire in the receipts and history router
+app.include_router(receipts_router)
+# Wire in the NLP training router
+app.include_router(nlp_router)
+# Wire in the auth router
+app.include_router(auth_router)
+
+
 # ---------- Startup and Shutdown Events ----------
 @app.on_event("startup")
 async def startup_event():
     """Ensure storage is properly initialized on app startup."""
     # For SQLiteStorage, tables are created in __init__
     # For InMemoryStorage, no initialization needed
-    pass
+    
+    # Seed menu if enabled
+    seed_on_startup = os.getenv("SEED_MENU_ON_STARTUP", "false").lower() == "true"
+    if seed_on_startup and isinstance(app.state.storage, SQLiteStorage):
+        try:
+            _seed_menu_on_startup()
+        except Exception as e:
+            print(f"Warning: Menu seeding failed: {e}")
+            # Don't fail startup if seeding fails; log and continue
+
+
+def _seed_menu_on_startup():
+    """Seed menu from menu.json if SEED_MENU_ON_STARTUP is true."""
+    import json
+    from pathlib import Path
+    from sqlalchemy.orm import sessionmaker
+    from scripts.seed_menu import seed_menu
+    
+    # Find menu.json
+    menu_file = Path(__file__).parent.parent / "data" / "menu.json"
+    if not menu_file.exists():
+        print(f"Warning: menu.json not found at {menu_file}, skipping menu seeding")
+        return
+    
+    # Load menu
+    with open(menu_file, 'r', encoding='utf-8') as f:
+        menu_dict = json.load(f)
+    
+    # Get database session
+    engine = app.state.storage.engine
+    SessionLocal = sessionmaker(bind=engine)
+    session = SessionLocal()
+    
+    try:
+        # Seed menu
+        stats = seed_menu(session, menu_dict, force=False)
+        print(
+            f"Menu seeding: Version {stats['version_id']}, "
+            f"Created: {stats['items_created']}, Updated: {stats['items_updated']}"
+        )
+    finally:
+        session.close()
 
 
 @app.on_event("shutdown")
@@ -470,20 +541,11 @@ async def replace_table_order(table: int, payload: SubmitOrder, storage: Storage
     - Reuse pending items that match (normalized text + category) to avoid duplication.
     - Cancel unmatched old pending items.
     - Create new items for unmatched new lines.
+    
+    For SQLAlchemyStorage, uses order_utils.replace_table_orders() which handles DB persistence properly.
+    For other storage backends (InMemoryStorage, SQLiteStorage), uses the original in-memory matching logic.
     """
     async with lock:
-        # existing pending items available for matching
-        all_items = storage.get_orders(table)
-        existing_pending = [it for it in all_items if it["status"] == "pending"]
-        existing_records = []
-        for it in existing_pending:
-            existing_records.append({
-                "item": it,
-                "norm": _normalize_text_for_match(it.get("text", "")),
-                "category": it.get("category"),
-                "used": False
-            })
-
         # Save table meta
         storage.set_table(table, {"people": payload.people, "bread": bool(payload.bread)})
         msg_meta = {"action": "meta_update", "table": table, "meta": storage.get_table(table)}
@@ -494,69 +556,104 @@ async def replace_table_order(table: int, payload: SubmitOrder, storage: Storage
         asyncio.create_task(broadcast_to_station("drinks", msg_meta))
         asyncio.create_task(broadcast_to_station("waiter", msg_meta))
 
-        # classify new payload
+        # Classify new payload
         classified = classify_order(payload.order_text)
 
-        new_items_created = []
-        updated_items = []
-        kept_items = []
-        for entry in classified:
-            new_text = entry["text"].strip()
-            new_cat = entry["category"]
-            new_norm = _normalize_text_for_match(new_text)
-
-            match_idx = None
-            for idx, rec in enumerate(existing_records):
-                if not rec["used"] and rec["norm"] == new_norm and rec["category"] == new_cat:
-                    match_idx = idx
-                    break
-
-            if match_idx is not None:
-                existing_records[match_idx]["used"] = True
-                existing_item = existing_records[match_idx]["item"]
-
-                # Check if the text actually changed (e.g., "2 μυθος" -> "3 μυθος")
-                if existing_item["text"] != new_text:
-                    # Update the existing item with new text and pricing
-                    existing_item["text"] = new_text
-
-                    # Only update pricing if new classification has a price
-                    # Otherwise preserve existing pricing (important for unmatched items)
-                    if entry.get("price") is not None:
-                        existing_item["menu_name"] = entry.get("menu_name")
-                        existing_item["qty"] = entry.get("multiplier", 1)
-                        existing_item["unit_price"] = entry.get("price")
-                        if entry.get("multiplier"):
-                            existing_item["line_total"] = round(entry["price"] * entry["multiplier"], 2)
-                        else:
-                            existing_item["line_total"] = entry.get("price")
-                    # If no new price but we have existing price, recalculate with new quantity
-                    elif existing_item.get("unit_price") is not None and entry.get("multiplier"):
-                        existing_item["qty"] = entry.get("multiplier", 1)
-                        existing_item["line_total"] = round(existing_item["unit_price"] * entry["multiplier"], 2)
-
-                    updated_items.append(existing_item)
-                else:
-                    kept_items.append(existing_item)
-            else:
-                item = _make_item(
-                    new_text,
-                    table,
-                    new_cat,
-                    menu_id=entry.get("menu_id"),
-                    menu_name=entry.get("menu_name"),
-                    price=entry.get("price"),
-                    multiplier=entry.get("multiplier")
+        # Use different logic based on storage backend
+        if isinstance(storage, SQLAlchemyStorage):
+            # For normalized storage, use order_utils helper which handles DB persistence
+            SessionLocal = sessionmaker(bind=storage.engine)
+            session = SessionLocal()
+            try:
+                result = order_utils.replace_table_orders(
+                    session=session,
+                    table_label=str(table),
+                    new_classified_items=classified,
+                    created_by_user_id=None  # TODO: Add user context when authentication is implemented
                 )
-                storage.add_order(table, item)
-                new_items_created.append(item)
+                session.commit()
+                
+                new_items_created = result["new"]
+                updated_items = result["updated"]
+                kept_items = result["kept"]
+                cancelled_items = result["cancelled"]
+            finally:
+                session.close()
+        else:
+            # For other storage (InMemoryStorage, SQLiteStorage), use original in-memory logic
+            all_items = storage.get_orders(table)
+            existing_pending = [it for it in all_items if it["status"] == "pending"]
+            existing_records = []
+            for it in existing_pending:
+                existing_records.append({
+                    "item": it,
+                    "norm": _normalize_text_for_match(it.get("text", "")),
+                    "category": it.get("category"),
+                    "used": False
+                })
 
-        # Cancel unmatched old pending items
-        cancelled_items = []
-        for rec in existing_records:
-            if not rec["used"]:
-                rec["item"]["status"] = "cancelled"
-                cancelled_items.append(rec["item"])
+            new_items_created = []
+            updated_items = []
+            kept_items = []
+            for entry in classified:
+                new_text = entry["text"].strip()
+                new_cat = entry["category"]
+                new_norm = _normalize_text_for_match(new_text)
+
+                match_idx = None
+                for idx, rec in enumerate(existing_records):
+                    if not rec["used"] and rec["norm"] == new_norm and rec["category"] == new_cat:
+                        match_idx = idx
+                        break
+
+                if match_idx is not None:
+                    existing_records[match_idx]["used"] = True
+                    existing_item = existing_records[match_idx]["item"]
+
+                    # Check if the text actually changed (e.g., "2 μυθος" -> "3 μυθος")
+                    if existing_item["text"] != new_text:
+                        # Update the existing item with new text and pricing
+                        existing_item["text"] = new_text
+
+                        # Only update pricing if new classification has a price
+                        if entry.get("price") is not None:
+                            existing_item["menu_name"] = entry.get("menu_name")
+                            existing_item["qty"] = entry.get("multiplier", 1)
+                            existing_item["unit_price"] = entry.get("price")
+                            if entry.get("multiplier"):
+                                existing_item["line_total"] = round(entry["price"] * entry["multiplier"], 2)
+                            else:
+                                existing_item["line_total"] = entry.get("price")
+                        # If no new price but we have existing price, recalculate with new quantity
+                        elif existing_item.get("unit_price") is not None and entry.get("multiplier"):
+                            existing_item["qty"] = entry.get("multiplier", 1)
+                            existing_item["line_total"] = round(existing_item["unit_price"] * entry["multiplier"], 2)
+
+                        updated_items.append(existing_item)
+                    else:
+                        kept_items.append(existing_item)
+                else:
+                    item = _make_item(
+                        new_text,
+                        table,
+                        new_cat,
+                        menu_id=entry.get("menu_id"),
+                        menu_name=entry.get("menu_name"),
+                        price=entry.get("price"),
+                        multiplier=entry.get("multiplier")
+                    )
+                    storage.add_order(table, item)
+                    new_items_created.append(item)
+
+            # Cancel unmatched old pending items
+            cancelled_items = []
+            for rec in existing_records:
+                if not rec["used"]:
+                    # For InMemoryStorage, in-place modification works
+                    # For SQLiteStorage, we need to call update_order_status
+                    storage.update_order_status(table, rec["item"]["id"], "cancelled")
+                    rec["item"]["status"] = "cancelled"
+                    cancelled_items.append(rec["item"])
 
         # Broadcast deletes for cancelled items and notify waiter
         for it in cancelled_items:
