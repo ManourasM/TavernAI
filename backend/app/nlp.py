@@ -76,29 +76,48 @@ def _normalize_text_basic(s: str) -> str:
     s3 = re.sub(r"\s+", " ", s3).strip()
     return s3
 
+
+def _normalize_rule_key(raw_text: str) -> str:
+    if not raw_text:
+        return ""
+
+    base_text, _ = _extract_parentheses(str(raw_text).strip())
+    _, _, _, item_text = _parse_quantity_and_units(base_text)
+    return _normalize_text_basic(item_text)
+
 def _greek_stem(word: str) -> str:
     """
-    Simple Greek stemming for common plural patterns.
+    Simple Greek stemming for common plural and diminutive patterns.
     Examples:
-    - "αρνια" -> "αρνι"
-    - "κατσικια" -> "κατσικι"
-    - "παιδακια" -> "παιδακι"
+    - "αρνια" -> "αρν"
+    - "κατσικια" -> "κατσικ"
+    - "κατσικακι" -> "κατσικ"
+    - "παιδακια" -> "παιδακ"
     """
     if not word:
         return word
 
+    # Remove diminutive suffix -ακι (e.g., κατσικακι -> κατσικ)
+    if word.endswith("ακι") and len(word) > 4:
+        return word[:-2]  # Remove -ι, keeping stem with -ακ -> then remove α
+    # Remove diminutive suffix -ακια (e.g., κατσικακια -> κατσικ)
+    if word.endswith("ακια") and len(word) > 5:
+        return word[:-3]  # Remove -ια, keeping stem with -ακ -> then remove α
+    
     # Common Greek plural endings
-    # -ια -> -ι (neuter plural)
+    # -ια -> remove -ια (neuter plural)
     if word.endswith("ια") and len(word) > 3:
-        return word[:-1]  # αρνια -> αρνι
+        return word[:-2]  # αρνια -> αρν, κατσικια -> κατσικ
     # -ες -> -α or -η (feminine/masculine plural)
     if word.endswith("ες") and len(word) > 3:
         return word[:-2]  # Could be -α or -η, but we'll just remove -ες
     # -οι -> -ος (masculine plural)
     if word.endswith("οι") and len(word) > 3:
         return word[:-2] + "ος"
-    # -α -> keep as is (could be plural or singular)
-
+    # -ι at end (could be singular neuter)
+    if word.endswith("ι") and len(word) > 2:
+        return word[:-1]  # Remove final -ι to match stems
+    
     return word
 
 # Build normalized sets for fast substring checks
@@ -114,8 +133,150 @@ GRILL_SET = _norm_list_to_set(GRILL_STEMS)
 KITCHEN_SET = _norm_list_to_set(KITCHEN_STEMS)
 DRINK_SET = _norm_list_to_set(DRINK_STEMS)
 
+
+# Base sets used to reset dynamic menu additions
+BASE_GRILL_SET = set(GRILL_SET)
+BASE_KITCHEN_SET = set(KITCHEN_SET)
+BASE_DRINK_SET = set(DRINK_SET)
+
 # MENU_ITEMS: normalized name -> { id, name, price, category }
 MENU_ITEMS = {}
+
+# Helper for category normalization
+def _categorize_raw(cat_raw):
+    """Return one of 'grill', 'drinks', 'kitchen', or None based on a raw category string."""
+    if not cat_raw:
+        return None
+    s = _normalize_text_basic(str(cat_raw))
+    # heuristics: look for substrings that indicate drinks or grill
+    if "grill" in s or "γρίλ" in s or "ψή" in s or "ψητ" in s or "gril" in s or "σχάρ" in s or "grill" in s:
+        return "grill"
+    if "drink" in s or "drinks" in s or "beer" in s or "μπυρ" in s or "κρασ" in s or \
+       "wine" in s or "wines" in s or "spirits" in s or "spirit" in s or "beers" in s or \
+       "soft" in s or "αναψυκ" in s or "ποτο" in s or "drinks" in s or "συ" in s:
+        return "drinks"
+    # check greek tokens
+    if "ψητ" in s or "σχάρα" in s or "σχαρ" in s or "ψη" in s:
+        return "grill"
+    if "κρασι" in s or "μπυρα" in s or "ουζο" in s or "ποτο" in s or "αναψυκ" in s:
+        return "drinks"
+    # check for kitchen category
+    if "kitchen" in s or "κουζιν" in s or "special" in s or "φουρν" in s:
+        return "kitchen"
+    # Default to kitchen for anything else (salads, appetizers, etc.)
+    return "kitchen"
+
+
+def refresh_menu_items(menu_dict):
+    """Refresh MENU_ITEMS and station sets from a menu dict (skipping hidden items)."""
+    global MENU_ITEMS, GRILL_SET, KITCHEN_SET, DRINK_SET
+
+    MENU_ITEMS = {}
+    GRILL_SET = set(BASE_GRILL_SET)
+    KITCHEN_SET = set(BASE_KITCHEN_SET)
+    DRINK_SET = set(BASE_DRINK_SET)
+
+    if not isinstance(menu_dict, dict):
+        print(f"[nlp.refresh_menu_items] Skipping non-dict menu: {type(menu_dict)}")
+        return 0
+
+    added = 0
+    skipped_hidden = 0
+    for top_cat, items in menu_dict.items():
+        if not isinstance(items, (list, tuple)):
+            continue
+        for entry in items:
+            if isinstance(entry, str):
+                name = entry
+                entry_cat = None
+                entry_id = None
+                entry_price = None
+                hidden = False
+            elif isinstance(entry, dict):
+                name = entry.get("name") or entry.get("title") or ""
+                entry_id = entry.get("id")
+                entry_price = entry.get("price")
+                entry_cat = entry.get("category") or entry.get("station") or top_cat
+                hidden = entry.get("hidden") is True
+                
+                # Skip if hidden or inactive
+                if hidden or entry.get("is_active") is False:
+                    skipped_hidden += 1
+                    continue
+            else:
+                continue
+
+            nn = _normalize_text_basic(name)
+            if not nn:
+                continue
+
+            cat_guess = None
+            if entry_cat:
+                cat_guess = _categorize_raw(entry_cat)
+            if not cat_guess:
+                cat_guess = _categorize_raw(top_cat)
+
+            MENU_ITEMS[nn] = {
+                "id": entry_id,
+                "name": name,
+                "price": entry_price,
+                "category": cat_guess or None
+            }
+
+            if cat_guess == "grill":
+                GRILL_SET.add(nn)
+            elif cat_guess == "drinks":
+                DRINK_SET.add(nn)
+            else:
+                KITCHEN_SET.add(nn)
+            added += 1
+
+    print(f"[nlp.refresh_menu_items] Refreshed: added={added}, skipped_hidden={skipped_hidden}, MENU_ITEMS size={len(MENU_ITEMS)}, GRILL_SET={len(GRILL_SET)}, KITCHEN_SET={len(KITCHEN_SET)}, DRINK_SET={len(DRINK_SET)}")
+    return added
+
+
+def build_override_rules(samples, menu_dict):
+    """
+    Build override rules mapping normalized raw_text -> menu item info.
+    Uses latest sample per normalized raw_text.
+    """
+    rules = {}
+    if not samples:
+        return rules
+
+    menu_index = {}
+    if isinstance(menu_dict, dict):
+        for top_cat, items in menu_dict.items():
+            if not isinstance(items, (list, tuple)):
+                continue
+            for entry in items:
+                if not isinstance(entry, dict):
+                    continue
+                item_id = entry.get("id")
+                if not item_id:
+                    continue
+                menu_index[str(item_id)] = {
+                    "id": str(item_id),
+                    "name": entry.get("name") or entry.get("title") or "",
+                    "price": entry.get("price"),
+                    "category": entry.get("category") or entry.get("station") or top_cat
+                }
+
+    for sample in samples:
+        raw_text = getattr(sample, "raw_text", None)
+        corrected_id = getattr(sample, "corrected_menu_item_id", None)
+        if not raw_text or not corrected_id:
+            continue
+        key = _normalize_rule_key(raw_text)
+        if not key or key in rules:
+            continue
+        menu_item = menu_index.get(str(corrected_id))
+        if not menu_item:
+            continue
+        rules[key] = menu_item
+
+    return rules
+
 
 # Optional: try to load backend/data/menu.json to extend sets
 try:
@@ -125,29 +286,6 @@ try:
         try:
             with open(menu_path, "r", encoding="utf-8") as f:
                 menu_j = json.load(f)
-
-            def _categorize_raw(cat_raw):
-                """Return one of 'grill', 'drinks', 'kitchen', or None based on a raw category string."""
-                if not cat_raw:
-                    return None
-                s = _normalize_text_basic(str(cat_raw))
-                # heuristics: look for substrings that indicate drinks or grill
-                if "grill" in s or "γρίλ" in s or "ψή" in s or "ψητ" in s or "gril" in s or "σχάρ" in s or "grill" in s:
-                    return "grill"
-                if "drink" in s or "drinks" in s or "beer" in s or "μπυρ" in s or "κρασ" in s or \
-                   "wine" in s or "wines" in s or "spirits" in s or "spirit" in s or "beers" in s or \
-                   "soft" in s or "αναψυκ" in s or "ποτο" in s or "drinks" in s or "συ" in s:
-                    return "drinks"
-                # check greek tokens
-                if "ψητ" in s or "σχάρα" in s or "σχαρ" in s or "ψη" in s:
-                    return "grill"
-                if "κρασι" in s or "μπυρα" in s or "ουζο" in s or "ποτο" in s or "αναψυκ" in s:
-                    return "drinks"
-                # check for kitchen category
-                if "kitchen" in s or "κουζιν" in s or "special" in s or "φουρν" in s:
-                    return "kitchen"
-                # Default to kitchen for anything else (salads, appetizers, etc.)
-                return "kitchen"
 
             # menu_j may be either an iterable list or a dict mapping category->list
             if isinstance(menu_j, dict):
@@ -248,10 +386,13 @@ try:
                                     break
                         if not placed:
                             KITCHEN_SET.add(nn)
-        except Exception:
+            print(f"✓ Loaded {len(MENU_ITEMS)} menu items from menu.json")
+        except Exception as e:
             # ignore malformed menu.json (do not crash the service)
+            print(f"✗ Error loading menu.json: {e}")
             pass
-except Exception:
+except Exception as e:
+    print(f"✗ No menu.json found at {menu_path}, using empty menu")
     pass
 
 # Helper: check if any normalized stem appears in text (substring) or vice versa
@@ -507,7 +648,34 @@ def _find_menu_match_with_units(item_text: str, unit: str, quantity: float) -> d
     return {"menu_id": None, "menu_name": None, "price": None, "category": None, "multiplier": quantity or 1}
 
 
-def classify_order(order_text: str) -> List[Dict]:
+def _build_override_menu_match(menu_item, unit, quantity=1):
+    if not menu_item:
+        return {"menu_id": None, "menu_name": None, "price": None, "category": None, "multiplier": quantity or 1}
+
+    menu_name = menu_item.get("name") or ""
+    menu_name_lower = str(menu_name).lower()
+    multiplier = quantity or 1
+
+    if unit in ['kg', 'κ', 'κιλα', 'κιλο', 'λ', 'λτ', 'lt', 'l']:
+        multiplier = quantity or 1
+    elif unit == 'ml':
+        if "(250)" in menu_name_lower:
+            multiplier = (quantity or 0) / 250.0
+        elif "(500)" in menu_name_lower:
+            multiplier = (quantity or 0) / 500.0
+        else:
+            multiplier = (quantity or 0) / 1000.0
+
+    return {
+        "menu_id": menu_item.get("id"),
+        "menu_name": menu_name,
+        "price": menu_item.get("price"),
+        "category": menu_item.get("category"),
+        "multiplier": multiplier
+    }
+
+
+def classify_order(order_text: str, override_rules: Dict[str, Dict] = None) -> List[Dict]:
     """
     Input: multi-line Greek order text (one dish per line)
     Output: list of {
@@ -535,6 +703,7 @@ def classify_order(order_text: str) -> List[Dict]:
     lines = [ln for ln in order_text.splitlines() if ln.strip()]
     for ln in lines:
         original = ln.strip()
+        rule_key = _normalize_rule_key(original)
 
         # Extract parentheses content (e.g., "(χωρίς σάλτσα)")
         # This should be preserved for display but not used for matching
@@ -557,7 +726,10 @@ def classify_order(order_text: str) -> List[Dict]:
                 lemmas = norm
 
         # Find menu match with unit awareness (using text without parentheses)
-        menu_match = _find_menu_match_with_units(item_text, unit, quantity or 1)
+        if override_rules and rule_key in override_rules:
+            menu_match = _build_override_menu_match(override_rules[rule_key], unit, quantity or 1)
+        else:
+            menu_match = _find_menu_match_with_units(item_text, unit, quantity or 1)
 
         # Decide category - use menu match category if available, otherwise classify
         if menu_match["menu_id"] and menu_match["category"]:

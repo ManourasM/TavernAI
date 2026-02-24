@@ -12,6 +12,13 @@ A unified Progressive Web App for the Tavern Ordering System with authentication
   - Persistent login with Capacitor Preferences
   - Default demo users for testing
 
+- **Orders History & Receipts**
+  - View past orders with date and table filters
+  - Pagination for large datasets
+  - Detailed receipt viewer with print capability
+  - Access for admin and waiter roles
+  - Integration with backend `/api/orders/history` endpoints
+
 - **Menu Setup with OCR**
   - Camera integration for menu photo capture
   - Upload existing images
@@ -148,11 +155,20 @@ For testing, use these credentials:
 - Save menu
 
 ### 3. Daily Operations
-- **Waiter**: Takes orders, views all endpoints
+- **Waiter**: Takes orders, views all endpoints, accesses order history
 - **Kitchen/Grill/Drinks**: Views only their endpoint
-- **Admin**: Full access to all features
+- **Admin**: Full access to all features including order history
 
-### 4. Notifications
+### 4. Order History & Receipts
+- Click the 📋 icon in the top navigation (admin/waiter only)
+- Filter orders by:
+  - Date range (from/to)
+  - Table number
+- Click any receipt to view details
+- Print receipts using the 🖨️ Print button
+- Browser print dialog opens for physical printing
+
+### 5. Notifications
 - Receive alerts when orders are ready
 - Mute/unmute option
 - Sound and vibration controls

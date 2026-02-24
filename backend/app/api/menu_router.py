@@ -13,7 +13,7 @@ from app.db import Base
 from app.db.models import MenuVersion, MenuItem
 from app.db.menu_access import get_latest_menu, get_active_menu_items, menu_items_to_dict
 from app.db.menu_utils import create_menu_version, upsert_menu_item, menu_version_exists
-from app.db.dependencies import get_db_session, require_admin
+from app.db.dependencies import get_sqlalchemy_session, require_admin
 
 
 # Response models
@@ -64,7 +64,7 @@ router = APIRouter(prefix="/api/menu", tags=["menu"])
 
 @router.get("")
 async def get_latest_menu_endpoint(
-    session: Session = Depends(get_db_session)
+    session: Session = Depends(get_sqlalchemy_session)
 ) -> Dict[str, Any]:
     """
     Get the latest menu as JSON blob.
@@ -83,7 +83,7 @@ async def get_latest_menu_endpoint(
 
 @router.get("/versions")
 async def list_menu_versions(
-    session: Session = Depends(get_db_session),
+    session: Session = Depends(get_sqlalchemy_session),
     limit: int = Query(10, ge=1, le=100)
 ) -> List[MenuVersionResponse]:
     """
@@ -125,7 +125,7 @@ async def list_menu_versions(
 @router.get("/{version_id}")
 async def get_menu_version(
     version_id: int,
-    session: Session = Depends(get_db_session)
+    session: Session = Depends(get_sqlalchemy_session)
 ) -> Dict[str, Any]:
     """
     Get a specific menu version by ID.
@@ -150,7 +150,7 @@ async def get_menu_version(
 @router.post("", status_code=201)
 async def create_menu_version_endpoint(
     request: CreateMenuRequest,
-    session: Session = Depends(get_db_session),
+    session: Session = Depends(get_sqlalchemy_session),
     admin: Dict = Depends(require_admin)
 ) -> Dict:
     """
@@ -168,6 +168,7 @@ async def create_menu_version_endpoint(
     try:
         # Create version
         from scripts.seed_menu import seed_menu
+        from app import nlp
         
         stats = seed_menu(
             session,
@@ -177,6 +178,12 @@ async def create_menu_version_endpoint(
         )
         
         session.commit()
+
+        # Refresh NLP menu cache so new items classify immediately
+        try:
+            nlp.refresh_menu_items(request.menu_dict)
+        except Exception as refresh_error:
+            print(f"[menu_router] Warning: failed to refresh NLP menu cache: {refresh_error}")
         
         # Return stats directly
         return {
@@ -193,7 +200,7 @@ async def create_menu_version_endpoint(
 async def update_menu_item(
     item_id: int,
     request: UpdateMenuItemRequest,
-    session: Session = Depends(get_db_session),
+    session: Session = Depends(get_sqlalchemy_session),
     admin: Dict = Depends(require_admin)
 ) -> MenuItemResponse:
     """
@@ -253,7 +260,7 @@ async def update_menu_item(
 @router.delete("/item/{item_id}")
 async def delete_menu_item(
     item_id: int,
-    session: Session = Depends(get_db_session),
+    session: Session = Depends(get_sqlalchemy_session),
     admin: Dict = Depends(require_admin)
 ) -> Dict[str, Any]:
     """
@@ -292,7 +299,7 @@ async def delete_menu_item(
 
 @router.get("/active/latest")
 async def get_active_menu_items_endpoint(
-    session: Session = Depends(get_db_session)
+    session: Session = Depends(get_sqlalchemy_session)
 ) -> Dict:
     """
     Get all active menu items from the latest version.

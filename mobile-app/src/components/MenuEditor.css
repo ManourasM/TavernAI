@@ -44,6 +44,12 @@
   padding: 16px;
 }
 
+.menu-item-card.hidden-item {
+  background: #f5f5f5;
+  border-color: #ccc;
+  opacity: 0.7;
+}
+
 .item-display {
   display: flex;
   justify-content: space-between;
@@ -137,5 +143,32 @@
 
 .editor-footer button {
   flex: 1;
+}
+
+.hidden-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.hidden-toggle input {
+  cursor: pointer;
+}
+
+.hidden-display {
+  opacity: 0.6;
+}
+
+.hidden-badge {
+  background: #f44336;
+  color: white;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  margin-left: 8px;
+  font-weight: bold;
 }
 

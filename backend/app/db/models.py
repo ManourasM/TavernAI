@@ -151,10 +151,12 @@ class OrderItem(Base):
     order_id = Column(Integer, ForeignKey("orders.id"), nullable=False, index=True)
     menu_item_id = Column(Integer, ForeignKey("menu_items.id"), nullable=True, index=True)  # Nullable for free-text items
     name = Column(String(255), nullable=False)  # Item name or free-text
+    text = Column(String(500), nullable=True)  # Original user input text (e.g., "2κ παιδακια")
     qty = Column(Integer, nullable=False, default=1)
     unit = Column(String(50), nullable=True)  # kg, liter, pcs, etc.
     unit_price = Column(Integer, nullable=False)  # Price in cents
     line_total = Column(Integer, nullable=False)  # qty * unit_price
+    category = Column(String(50), nullable=True)  # kitchen, grill, drinks (for routing)
     status = Column(String(50), default="pending", nullable=False)  # pending, preparing, ready, served, cancelled
     
     __table_args__ = (
@@ -195,8 +197,8 @@ class NLPTrainingSample(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     raw_text = Column(String(500), nullable=False)
-    predicted_menu_item_id = Column(Integer, ForeignKey("menu_items.id"), nullable=True, index=True)
-    corrected_menu_item_id = Column(Integer, ForeignKey("menu_items.id"), nullable=True)
+    predicted_menu_item_id = Column(String(255), nullable=True, index=True)
+    corrected_menu_item_id = Column(String(255), nullable=True)
     corrected_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     
@@ -206,9 +208,6 @@ class NLPTrainingSample(Base):
     )
     
     # Relationships
-    # predicted_item: forward relationship to MenuItem for predicted_menu_item_id
-    predicted_item = relationship("MenuItem", foreign_keys=[predicted_menu_item_id])
-    corrected_item = relationship("MenuItem", foreign_keys=[corrected_menu_item_id])
     corrected_by = relationship("User", back_populates="nlp_corrections")
     
     def __repr__(self):

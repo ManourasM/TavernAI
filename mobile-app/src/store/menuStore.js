@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { getMenu, clearMenuCache } from '../services/menuService';
 
 const useMenuStore = create(
   persist(
@@ -12,41 +13,49 @@ const useMenuStore = create(
         { id: 'drinks', name: 'Ποτά', color: '#2196F3' },
       ],
       isMenuSetup: false,
+      menuLoadError: null,
 
-      // Load menu from backend or local storage
-      loadMenu: async () => {
+      // Load menu from backend API with fallback to public/menu.json
+      loadMenu: async (options = {}) => {
         try {
-          // Try to fetch from public folder first (default menu)
-          const menuResponse = await fetch('/menu.json');
-          if (menuResponse.ok) {
-            const menu = await menuResponse.json();
-            set({ menu, isMenuSetup: true });
-            localStorage.setItem('tavern_menu', JSON.stringify(menu));
-            return { success: true, menu };
+          const result = await getMenu(options);
+          
+          if (result.success) {
+            set({ menu: result.menu, isMenuSetup: true, menuLoadError: null });
+            console.log(`[menuStore] Loaded menu from ${result.source}`);
+            if (result.apiError) {
+              console.warn(`[menuStore] API error (using fallback): ${result.apiError}`);
+            }
+            return { success: true, menu: result.menu, source: result.source };
+          } else {
+            set({ menu: null, isMenuSetup: false, menuLoadError: result.error });
+            console.error('[menuStore] Failed to load menu:', result.error);
+            return { success: false, error: result.error };
           }
         } catch (error) {
-          console.error('Failed to load menu from public folder:', error);
+          const errorMsg = error?.message || 'Unknown error loading menu';
+          set({ menu: null, isMenuSetup: false, menuLoadError: errorMsg });
+          console.error('[menuStore] Menu load error:', error);
+          return { success: false, error: errorMsg };
         }
-
-        // Fallback to local storage
-        const storedMenu = localStorage.getItem('tavern_menu');
-        if (storedMenu) {
-          const menu = JSON.parse(storedMenu);
-          set({ menu, isMenuSetup: true });
-          return { success: true, menu };
-        }
-
-        return { success: false, error: 'No menu found' };
       },
 
       // Save menu (from OCR or manual entry)
       saveMenu: async (menu) => {
         set({ menu, isMenuSetup: true });
+        // TODO: Optionally sync to backend API (POST /api/menu)
+        return { success: true };
+      },
 
-        // Save to local storage
-        localStorage.setItem('tavern_menu', JSON.stringify(menu));
+      // Refresh menu from source (skip cache)
+      refreshMenu: async () => {
+        console.log('[menuStore] Refreshing menu from source...');
+        return get().loadMenu({ forceRefresh: true });
+      },
 
-        // TODO: Optionally sync to backend
+      // Clear menu cache
+      clearCache: async () => {
+        clearMenuCache();
         return { success: true };
       },
 
@@ -117,8 +126,8 @@ const useMenuStore = create(
 
       // Reset menu (for testing or re-setup)
       resetMenu: async () => {
-        set({ menu: null, isMenuSetup: false });
-        localStorage.removeItem('tavern_menu');
+        clearMenuCache();
+        set({ menu: null, isMenuSetup: false, menuLoadError: null });
         return { success: true };
       },
     }),

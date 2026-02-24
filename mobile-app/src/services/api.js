@@ -12,6 +12,21 @@
 
 let _configCache = null;
 let _configPromise = null;
+const AUTH_TOKEN_KEY = 'tavern_auth_token';
+
+function getAuthToken() {
+  try {
+    return localStorage.getItem(AUTH_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function buildAuthHeaders() {
+  const token = getAuthToken();
+  if (!token) return {};
+  return { Authorization: `Bearer ${token}` };
+}
 
 /**
  * Try to fetch /config from the same origin first, then fallback to common places.
@@ -23,7 +38,7 @@ export async function refreshConfig() {
   return await getConfig();
 }
 
-async function getConfig() {
+export async function getConfig() {
   console.log("[getConfig] called, cache exists?", !!_configCache, "promise exists?", !!_configPromise);
   if (_configCache) {
     console.log("[getConfig] returning cached config:", _configCache);
@@ -122,6 +137,8 @@ async function getConfig() {
     return result;
   } catch (e) {
     console.error("[config] ERROR:", e);
+    // Clear the failed promise so next call can retry
+    _configPromise = null;
     // Return a basic fallback even if promise fails
     const emergencyFallback = {
       backend_base: `${location.protocol}//${location.host}`,
@@ -130,6 +147,9 @@ async function getConfig() {
     };
     _configCache = emergencyFallback;
     return emergencyFallback;
+  } finally {
+    // Clear promise after it settles (success or fail) to allow retries
+    _configPromise = null;
   }
 }
 
@@ -187,11 +207,50 @@ export async function postOrder(table, orderText, people = null, bread = false) 
   if (!res.ok) {
     const errorText = await res.text();
     console.error("[api] POST failed:", res.status, errorText);
-    throw new Error(`HTTP ${res.status}: ${errorText}`);
+    let errorData = null;
+    try {
+      errorData = JSON.parse(errorText);
+    } catch {
+      // If not JSON, create error object with the text
+      errorData = { detail: errorText };
+    }
+    const error = new Error(`HTTP ${res.status}: ${errorText}`);
+    error.status = res.status;
+    error.data = errorData;
+    throw error;
   }
   const result = await res.json();
   console.log("[api] POST result:", result);
   return result;
+}
+
+export async function previewOrder(table, orderText, people = null, bread = false) {
+  console.log("[api.previewOrder] START", { table, orderText, people, bread });
+  const payload = { table, order_text: orderText };
+  if (people !== null) payload.people = people;
+  payload.bread = !!bread;
+
+  const url = await buildHttpUrl("/order/preview");
+  console.log("[api] POST preview", url, payload);
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const errorText = await res.text();
+    let errorData = null;
+    try {
+      errorData = JSON.parse(errorText);
+    } catch {
+      errorData = { detail: errorText };
+    }
+    const error = new Error(`HTTP ${res.status}: ${errorText}`);
+    error.status = res.status;
+    error.data = errorData;
+    throw error;
+  }
+  return await res.json();
 }
 
 export async function putOrder(table, orderText, people = null, bread = false) {
@@ -209,7 +268,17 @@ export async function putOrder(table, orderText, people = null, bread = false) {
   if (!res.ok) {
     const errorText = await res.text();
     console.error("[api] PUT failed:", res.status, errorText);
-    throw new Error(`HTTP ${res.status}: ${errorText}`);
+    let errorData = null;
+    try {
+      errorData = JSON.parse(errorText);
+    } catch {
+      // If not JSON, create error object with the text
+      errorData = { detail: errorText };
+    }
+    const error = new Error(`HTTP ${res.status}: ${errorText}`);
+    error.status = res.status;
+    error.data = errorData;
+    throw error;
   }
   const result = await res.json();
   console.log("[api] PUT result:", result);
@@ -236,6 +305,73 @@ export async function markDone(itemId) {
   const url = await buildHttpUrl(`/item/${itemId}/done`);
   console.debug("[api] POST markDone", url);
   const res = await fetch(url, { method: "POST" });
+  return await res.json();
+}
+
+export async function captureNlpSample(payload) {
+  const url = await buildHttpUrl("/api/nlp/capture");
+  console.debug("[api] POST captureNlpSample", url, payload);
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) {
+    const errorText = await res.text();
+    let errorData = null;
+    try {
+      errorData = JSON.parse(errorText);
+    } catch {
+      errorData = { detail: errorText };
+    }
+    const error = new Error(`HTTP ${res.status}: ${errorText}`);
+    error.status = res.status;
+    error.data = errorData;
+    throw error;
+  }
+  return await res.json();
+}
+
+export async function getNlpRules() {
+  const url = await buildHttpUrl("/api/nlp/rules");
+  console.debug("[api] GET getNlpRules", url);
+  const res = await fetch(url, { headers: buildAuthHeaders() });
+  if (!res.ok) {
+    const errorText = await res.text();
+    const error = new Error(`HTTP ${res.status}: ${errorText}`);
+    error.status = res.status;
+    throw error;
+  }
+  return await res.json();
+}
+
+export async function updateNlpRule(ruleId, payload) {
+  const url = await buildHttpUrl(`/api/nlp/rules/${ruleId}`);
+  console.debug("[api] PUT updateNlpRule", url, payload);
+  const res = await fetch(url, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...buildAuthHeaders() },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) {
+    const errorText = await res.text();
+    const error = new Error(`HTTP ${res.status}: ${errorText}`);
+    error.status = res.status;
+    throw error;
+  }
+  return await res.json();
+}
+
+export async function deleteNlpRule(ruleId) {
+  const url = await buildHttpUrl(`/api/nlp/rules/${ruleId}`);
+  console.debug("[api] DELETE deleteNlpRule", url);
+  const res = await fetch(url, { method: "DELETE", headers: buildAuthHeaders() });
+  if (!res.ok) {
+    const errorText = await res.text();
+    const error = new Error(`HTTP ${res.status}: ${errorText}`);
+    error.status = res.status;
+    throw error;
+  }
   return await res.json();
 }
 

@@ -150,12 +150,12 @@ def prepare_backend_command(backend_dir):
     if py:
         # use -m uvicorn with that python
         safe_py = f'"{py}"'
-        cmd = f'{safe_py} -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000'
+        cmd = f'set STORAGE_BACKEND=sqlalchemy && {safe_py} -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000'
         return cmd
     # else fallback to system python that runs this script
     sys_py = sys.executable or "python"
     safe_sys_py = f'"{sys_py}"'
-    return f'{safe_sys_py} -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000'
+    return f'set STORAGE_BACKEND=sqlalchemy && {safe_sys_py} -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000'
 
 def main():
     print("Starting services with fixed ports (backend:8000, waiter:5173, grill:5174, kitchen:5175, drinks:5176)\n")

@@ -84,7 +84,9 @@ def upsert_menu_item(
     name = item_dict.get("name", "")
     price_decimal = item_dict.get("price", 0)
     category = item_dict.get("category", "kitchen")
-    station = item_dict.get("station") or section_key or "kitchen"
+    station = item_dict.get("station") or section_key or category or "kitchen"
+    is_active = not bool(item_dict.get("hidden"))
+    extra_data = item_dict.get("extra_data") or item_dict.get("metadata")
     
     # Convert price from decimal to cents (int)
     price_cents = int(round(price_decimal * 100))
@@ -113,6 +115,8 @@ def upsert_menu_item(
         existing.price = price_cents
         existing.category = category
         existing.station = station
+        existing.is_active = is_active
+        existing.extra_data = extra_data
         return existing
     else:
         # Create new
@@ -123,7 +127,8 @@ def upsert_menu_item(
             price=price_cents,
             category=category,
             station=station,
-            extra_data=None
+            is_active=is_active,
+            extra_data=extra_data
         )
         session.add(new_item)
         return new_item

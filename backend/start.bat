@@ -15,6 +15,13 @@ echo 🔁 Using virtual environment...
 echo 🌐 Starting server on 0.0.0.0:8000 (accessible from network)
 echo.
 
+REM Set storage backend to sqlalchemy for auth support
+set STORAGE_BACKEND=sqlalchemy
+
+REM Disable Alembic to prevent database drops on schema conflicts
+REM This allows the database to persist across restarts while still creating missing tables
+set USE_ALEMBIC=false
+
 REM Start the server with host 0.0.0.0 to allow network access
 venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 

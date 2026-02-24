@@ -15,6 +15,7 @@ services:
       - "8000:8000"
     environment:
       - PYTHONUNBUFFERED=1
+      - STORAGE_BACKEND=sqlalchemy
     volumes:
       # Mount data directory for menu.json
       - ../backend/data:/app/data

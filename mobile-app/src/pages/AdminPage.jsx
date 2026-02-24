@@ -6,6 +6,7 @@ import './AdminPage.css';
 
 function AdminPage() {
   const user = useAuthStore((state) => state.user);
+  const isAdmin = useAuthStore((state) => state.isAdmin);
   const users = useAuthStore((state) => state.users);
   const addUser = useAuthStore((state) => state.addUser);
   const deleteUser = useAuthStore((state) => state.deleteUser);
@@ -19,13 +20,13 @@ function AdminPage() {
   const [activeSection, setActiveSection] = useState('users');
 
   // Redirect if not admin
-  if (user?.role !== ROLES.ADMIN) {
+  if (!isAdmin()) {
     navigate('/home');
     return null;
   }
 
   const handleResetMenu = async () => {
-    if (confirm('Are you sure you want to reset the menu? This will delete all menu data.')) {
+    if (confirm('Είστε σίγουροι ότι θέλετε να επαναφέρετε το μενού; Αυτό θα διαγράψει όλα τα δεδομένα μενού.')) {
       await resetMenu();
       navigate('/setup');
     }
@@ -46,6 +47,18 @@ function AdminPage() {
           onClick={() => setActiveSection('users')}
         >
           👥 Χρήστες
+        </button>
+        <button
+          className={activeSection === 'menu-editor' ? 'active' : ''}
+          onClick={() => navigate('/admin/menu')}
+        >
+          🧾 Επεξεργασία Μενού
+        </button>
+        <button
+          className={activeSection === 'nlp-rules' ? 'active' : ''}
+          onClick={() => navigate('/admin/nlp')}
+        >
+          🧠 Κανόνες
         </button>
         <button
           className={activeSection === 'endpoints' ? 'active' : ''}
@@ -80,57 +93,69 @@ function AdminPage() {
   );
 }
 
-function UsersSection({ users, addUser, deleteUser }) {
+function UsersSection({ users = [], addUser, deleteUser }) {
   return (
     <div className="section">
-      <h2>User Management</h2>
-      <div className="user-list">
-        {users.map((user) => (
-          <div key={user.id} className="user-card">
-            <div className="user-info">
-              <h3>{user.name}</h3>
-              <p>@{user.username} • {user.role}</p>
+      <h2>Διαχείριση Χρηστών</h2>
+      {users.length === 0 ? (
+        <p className="info-text">Δεν υπάρχουν χρήστες ακόμα. Η διαχείριση χρηστών θα προστεθεί σύντομα.</p>
+      ) : (
+        <div className="user-list">
+          {users.map((user) => (
+            <div key={user.id} className="user-card">
+              <div className="user-info">
+                <h3>{user.name}</h3>
+                <p>@{user.username} • {user.role}</p>
+              </div>
+              <button 
+                onClick={() => deleteUser(user.id)} 
+                className="delete-btn"
+                disabled={user.role === ROLES.ADMIN}
+              >
+                Διαγραφή
+              </button>
             </div>
-            <button 
-              onClick={() => deleteUser(user.id)} 
-              className="delete-btn"
-              disabled={user.role === ROLES.ADMIN}
-            >
-              Delete
-            </button>
-          </div>
-        ))}
-      </div>
-      <p className="info-text">User creation UI to be implemented</p>
+          ))}
+        </div>
+      )}
+      <p className="info-text" style={{marginTop: '20px'}}>
+        Η δημιουργία νέων χρηστών θα προστεθεί σύντομα.
+      </p>
     </div>
   );
 }
 
-function EndpointsSection({ endpoints, addEndpoint, deleteEndpoint }) {
+function EndpointsSection({ endpoints = [], addEndpoint, deleteEndpoint }) {
   return (
     <div className="section">
-      <h2>Endpoint Management</h2>
-      <div className="endpoint-list">
-        {endpoints.map((endpoint) => (
-          <div key={endpoint.id} className="endpoint-card">
-            <div 
-              className="endpoint-color" 
-              style={{ backgroundColor: endpoint.color }}
-            />
-            <div className="endpoint-info">
-              <h3>{endpoint.name}</h3>
-              <p>{endpoint.id}</p>
+      <h2>Διαχείριση Σημείων Εξυπηρέτησης</h2>
+      {endpoints.length === 0 ? (
+        <p className="info-text">Δεν υπάρχουν σημεία εξυπηρέτησης. Η διαχείριση σημείων θα προστεθεί σύντομα.</p>
+      ) : (
+        <div className="endpoint-list">
+          {endpoints.map((endpoint) => (
+            <div key={endpoint.id} className="endpoint-card">
+              <div 
+                className="endpoint-color" 
+                style={{ backgroundColor: endpoint.color }}
+              />
+              <div className="endpoint-info">
+                <h3>{endpoint.name}</h3>
+                <p>{endpoint.id}</p>
+              </div>
+              <button 
+                onClick={() => deleteEndpoint(endpoint.id)} 
+                className="delete-btn"
+              >
+                Διαγραφή
+              </button>
             </div>
-            <button 
-              onClick={() => deleteEndpoint(endpoint.id)} 
-              className="delete-btn"
-            >
-              Delete
-            </button>
-          </div>
-        ))}
-      </div>
-      <p className="info-text">Endpoint creation UI to be implemented</p>
+          ))}
+        </div>
+      )}
+      <p className="info-text" style={{marginTop: '20px'}}>
+        Η δημιουργία νέων σημείων θα προστεθεί σύντομα.
+      </p>
     </div>
   );
 }

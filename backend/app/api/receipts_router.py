@@ -46,22 +46,26 @@ class ReceiptDetail(BaseModel):
     """Detailed receipt information."""
     id: int
     order_id: int
-    table_label: str
+    table: int | str  # Changed from table_label to match frontend
     opened_at: str
+    created_at: str  # Alias for opened_at for frontend compatibility
     closed_at: str
     printed_at: Optional[str]
     content: str
     total: float
+    items: list[dict]  # Added items array for frontend
 
 
 class HistoryItem(BaseModel):
     """Summary item for history list."""
-    receipt_id: int
+    id: int  # Receipt ID (changed from receipt_id to match frontend)
     order_id: int
-    table_label: str
+    table: int | str  # Changed from table_label to match frontend
+    created_at: str  # Alias for opened_at for frontend compatibility
     closed_at: str
     total: float
     printed: bool
+    items: Optional[list[dict]] = None  # Added for frontend compatibility
 
 
 class HistoryResponse(BaseModel):
@@ -246,8 +250,8 @@ async def close_table_session(
 
 @router.get("/history", response_model=HistoryResponse, summary="Get order history")
 async def get_order_history(
-    from_date: Optional[str] = Query(None, description="Filter by closed_at >= from_date (ISO format)"),
-    to_date: Optional[str] = Query(None, description="Filter by closed_at <= to_date (ISO format)"),
+    from_date: Optional[str] = Query(None, alias="from", description="Filter by closed_at >= from (ISO format)"),
+    to_date: Optional[str] = Query(None, alias="to", description="Filter by closed_at <= to (ISO format)"),
     table: Optional[str] = Query(None, description="Filter by table label"),
     limit: int = Query(50, ge=1, le=500, description="Max results per page"),
     offset: int = Query(0, ge=0, description="Offset for pagination"),
@@ -257,8 +261,8 @@ async def get_order_history(
     Get paginated list of closed table sessions with receipts.
     
     Filters:
-    - from_date: ISO datetime string (e.g., "2026-02-01T00:00:00")
-    - to_date: ISO datetime string
+    - from: ISO datetime string (e.g., "2026-02-01T00:00:00")
+    - to: ISO datetime string
     - table: Table label (exact match)
     - limit: Results per page (1-500)
     - offset: Pagination offset
@@ -305,13 +309,29 @@ async def get_order_history(
             # Calculate total from order
             total_cents = order.total if order.total else 0
             
+            # Parse items from content JSON
+            try:
+                import json
+                content_data = json.loads(receipt.content)
+                receipt_items = content_data.get('items', [])
+            except (json.JSONDecodeError, AttributeError):
+                receipt_items = []
+            
+            # Convert table_label to int if possible
+            try:
+                table_value = int(table_session.table_label)
+            except (ValueError, TypeError):
+                table_value = table_session.table_label
+            
             items.append(HistoryItem(
-                receipt_id=receipt.id,
+                id=receipt.id,  # Changed from receipt_id to id
                 order_id=order.id,
-                table_label=table_session.table_label,
+                table=table_value,  # Changed from table_label to table
+                created_at=table_session.opened_at.isoformat(),  # Alias for opened_at
                 closed_at=table_session.closed_at.isoformat(),
                 total=total_cents / 100.0,
-                printed=receipt.printed_at is not None
+                printed=receipt.printed_at is not None,
+                items=receipt_items  # Added items for frontend
             ))
         
         return HistoryResponse(
@@ -342,6 +362,8 @@ async def get_receipt_detail(
     session = _get_db_session(storage)
     
     try:
+        import json
+        
         # Query receipt with joins
         result = (
             session.query(Receipt, Order, TableSession)
@@ -356,23 +378,40 @@ async def get_receipt_detail(
         
         receipt, order, table_session = result
         
+        # Parse content JSON
+        try:
+            content_data = json.loads(receipt.content)
+            items = content_data.get('items', [])
+        except (json.JSONDecodeError, AttributeError):
+            items = []
+        
         # Calculate total
         total_cents = order.total if order.total else 0
+        
+        # Convert table_label to int if possible
+        try:
+            table_value = int(table_session.table_label)
+        except (ValueError, TypeError):
+            table_value = table_session.table_label
         
         return ReceiptDetail(
             id=receipt.id,
             order_id=order.id,
-            table_label=table_session.table_label,
+            table=table_value,  # Changed from table_label to table
             opened_at=table_session.opened_at.isoformat(),
+            created_at=table_session.opened_at.isoformat(),  # Alias for opened_at
             closed_at=table_session.closed_at.isoformat() if table_session.closed_at else None,
             printed_at=receipt.printed_at.isoformat() if receipt.printed_at else None,
             content=receipt.content,
-            total=total_cents / 100.0
+            total=total_cents / 100.0,
+            items=items  # Added parsed items
         )
         
     except HTTPException:
         raise
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error fetching receipt: {str(e)}")
     finally:
         session.close()

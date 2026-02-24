@@ -77,8 +77,8 @@ def create_order_from_payload(
     # Calculate total
     total_cents = 0
     for item in classified_items:
-        price = item.get("price", 0)
-        multiplier = item.get("multiplier", 1)
+        price = item.get("price") or 0  # Handle None prices
+        multiplier = item.get("multiplier") or 1  # Handle None multipliers
         total_cents += int(round(price * multiplier * 100))
     
     # Create Order
@@ -98,8 +98,8 @@ def create_order_from_payload(
         item_id = str(uuid4())
         
         # Extract pricing info
-        price = entry.get("price", 0)
-        multiplier = entry.get("multiplier", 1)
+        price = entry.get("price") or 0  # Handle None prices
+        multiplier = entry.get("multiplier") or 1  # Handle None multipliers
         unit_price = price
         line_total = round(price * multiplier, 2)
         
@@ -118,10 +118,12 @@ def create_order_from_payload(
             order_id=order.id,
             menu_item_id=menu_item_id,
             name=entry.get("menu_name") or entry.get("text", "Unknown"),
+            text=entry.get("text"),  # Store original user input
             qty=multiplier,
             unit=None,  # Could be extracted from text if needed
             unit_price=int(round(unit_price * 100)),  # Store as cents
             line_total=int(round(line_total * 100)),  # Store as cents
+            category=entry.get("category"),  # Store category for routing
             status="pending"
         )
         session.add(order_item)
@@ -131,7 +133,7 @@ def create_order_from_payload(
         item_dict = {
             "id": item_id,
             "table": int(table_label) if table_label.isdigit() else table_label,
-            "text": entry.get("text", ""),
+            "text": entry.get("text", ""),  # Original user input
             "menu_name": entry.get("menu_name"),
             "name": entry.get("menu_name") or entry.get("text", "Unknown"),
             "qty": multiplier,
@@ -201,14 +203,14 @@ def list_orders_for_table(
             item_dict = {
                 "id": str(uuid4()),  # Generate stable ID
                 "table": int(table_label) if table_label.isdigit() else table_label,
-                "text": item.name,
+                "text": item.text or item.name,  # Use original text if available
                 "menu_name": item.name,
                 "name": item.name,
                 "qty": item.qty,
                 "unit_price": item.unit_price / 100.0 if item.unit_price else 0,
                 "line_total": item.line_total / 100.0 if item.line_total else 0,
                 "menu_id": item.menu_item.external_id if item.menu_item else None,
-                "category": _infer_category_from_item(item),
+                "category": item.category or _infer_category_from_item(item),  # Use stored category first
                 "status": item.status,
                 "created_at": order.created_at.isoformat() + "Z" if order.created_at else None,
                 "_db_order_item_id": item.id  # Internal reference
@@ -349,20 +351,24 @@ def replace_table_orders(
                     
                     if db_item:
                         # Update fields
-                        price = entry.get("price", existing_item.get("unit_price", 0))
-                        multiplier = entry.get("multiplier", 1)
+                        price = (entry.get("price") or existing_item.get("unit_price") or 0)  # Handle None prices
+                        multiplier = entry.get("multiplier") or 1  # Handle None multipliers
                         
                         db_item.name = entry.get("menu_name") or new_text
+                        db_item.text = new_text  # Update original text
                         db_item.qty = multiplier
                         db_item.unit_price = int(round(price * 100))
                         db_item.line_total = int(round(price * multiplier * 100))
+                        db_item.category = entry.get("category")  # Update category
                         session.flush()
                         
                         # Update response dict
                         existing_item["text"] = new_text
+                        existing_item["menu_name"] = entry.get("menu_name")
                         existing_item["qty"] = multiplier
                         existing_item["unit_price"] = price
                         existing_item["line_total"] = round(price * multiplier, 2)
+                        existing_item["category"] = entry.get("category")
                         updated_items.append(existing_item)
             else:
                 # Exact match, keep as-is
@@ -455,8 +461,15 @@ def purge_done_items(
 
 def _infer_category_from_item(item: OrderItem) -> str:
     """Infer category from OrderItem (uses menu_item if available)."""
-    if item.menu_item and item.menu_item.station:
-        return item.menu_item.station
+    # First check if category is stored directly
+    if hasattr(item, 'category') and item.category:
+        return item.category
+    # Then check menu item
+    if item.menu_item:
+        if hasattr(item.menu_item, 'station') and item.menu_item.station:
+            return item.menu_item.station
+        if hasattr(item.menu_item, 'category') and item.menu_item.category:
+            return item.menu_item.category
     
     # Default fallback
     return "kitchen"

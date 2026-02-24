@@ -121,6 +121,8 @@ def menu_items_to_dict(items: list) -> Dict[str, Any]:
             "price": item.price / 100.0,  # Convert cents back to decimal
             "category": item.category,
             "station": item.station,
+            "hidden": not item.is_active,
+            "extra_data": item.extra_data,
         })
     
     return menu

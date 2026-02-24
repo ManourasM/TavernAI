@@ -1,8 +1,26 @@
 import { useState, useEffect, useRef } from 'react';
-import { postOrder, putOrder, getOrders, getTableMeta, createWS } from '../services/api';
+import { useNavigate } from 'react-router-dom';
+import { postOrder, putOrder, getOrders, getTableMeta, createWS, captureNlpSample, previewOrder } from '../services/api';
+import useMenuStore from '../store/menuStore';
+import CorrectionModal from './CorrectionModal';
 import './WaiterView.css';
 
+// Global guard to prevent duplicate receipt tabs across all instances
+const openedReceipts = new Map(); // Map receipt ID to timestamp
+const RECEIPT_GUARD_TIMEOUT = 5000; // 5 seconds
+
+// Clean up old entries periodically
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, timestamp] of openedReceipts.entries()) {
+    if (now - timestamp > RECEIPT_GUARD_TIMEOUT) {
+      openedReceipts.delete(key);
+    }
+  }
+}, 1000);
+
 function WaiterView() {
+  const navigate = useNavigate();
   const [tables, setTables] = useState({});
   const [selectedTable, setSelectedTable] = useState(null);
   const [orderText, setOrderText] = useState('');
@@ -10,7 +28,17 @@ function WaiterView() {
   const [bread, setBread] = useState(false);
   const [loading, setLoading] = useState(false);
   const [connected, setConnected] = useState(false);
+  const [hiddenItemsPopup, setHiddenItemsPopup] = useState(null);
+  const [unclassifiedItemsPopup, setUnclassifiedItemsPopup] = useState(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewItems, setPreviewItems] = useState([]);
+  const [previewHidden, setPreviewHidden] = useState([]);
+  const [previewUnclassified, setPreviewUnclassified] = useState([]);
+  const [selectedItemForCorrection, setSelectedItemForCorrection] = useState(null);
+  const [correctionLoading, setCorrectionLoading] = useState(false);
   const wsRef = useRef(null);
+  
+  const menu = useMenuStore((state) => state.menu);
 
   // Helper function to format price
   const formatPrice = (price) => {
@@ -20,6 +48,85 @@ function WaiterView() {
     } catch {
       return '—';
     }
+  };
+
+  const findMenuItemById = (menuData, itemId) => {
+    if (!menuData || !itemId) return null;
+    const idStr = String(itemId);
+    for (const section of Object.values(menuData)) {
+      if (!Array.isArray(section)) continue;
+      const found = section.find((entry) => entry && String(entry.id) === idStr);
+      if (found) return found;
+    }
+    return null;
+  };
+
+  const normalizeRuleKey = (text) => {
+    if (!text) return '';
+    const strippedParens = text.replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim();
+    const strippedQty = strippedParens.replace(/^\d+(?:\.\d+)?(λτ|λ|lt|l|kg|κιλα|κιλο|κ|ml)?\s+/i, '');
+    return strippedQty
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^\p{L}\p{N}\s]/gu, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+
+  const applyLocalCorrection = (orderItemId, correctedItemId) => {
+    if (!selectedTable) return;
+    const correctedItem = findMenuItemById(menu, correctedItemId);
+    if (!correctedItem) return;
+
+    setTables((prev) => {
+      const tableItems = prev[selectedTable] || [];
+      const updatedItems = tableItems.map((it) => {
+        if (!it || it.id !== orderItemId) return it;
+        const qty = typeof it.qty === 'number' ? it.qty : 1;
+        const unitPrice = correctedItem.price ?? it.unit_price;
+        const lineTotal = unitPrice !== null && unitPrice !== undefined ? qty * Number(unitPrice) : it.line_total;
+        return {
+          ...it,
+          menu_id: correctedItem.id,
+          menu_name: correctedItem.name,
+          name: correctedItem.name,
+          unit_price: unitPrice,
+          line_total: lineTotal
+        };
+      });
+      return { ...prev, [selectedTable]: updatedItems };
+    });
+  };
+
+  const recomputePreviewUnclassified = (items) => {
+    const missing = items
+      .filter((it) => !it.menu_name)
+      .map((it) => it.text);
+    setPreviewUnclassified(missing);
+  };
+
+  const applyPreviewCorrection = (previewId, correctedItemId) => {
+    const correctedItem = findMenuItemById(menu, correctedItemId);
+    if (!correctedItem) return;
+
+    setPreviewItems((prev) => {
+      const target = prev.find((it) => it && it.preview_id === previewId);
+      const targetKey = target ? normalizeRuleKey(target.text) : null;
+      const updated = prev.map((it) => {
+        if (!it) return it;
+        if (targetKey && normalizeRuleKey(it.text) !== targetKey) return it;
+        return {
+          ...it,
+          menu_id: correctedItem.id,
+          menu_name: correctedItem.name,
+          price: correctedItem.price,
+          category: correctedItem.category || it.category
+        };
+      });
+      recomputePreviewUnclassified(updated);
+      return updated;
+    });
   };
 
   // Get current order items for selected table
@@ -43,6 +150,18 @@ function WaiterView() {
 
   // Setup WebSocket connection
   useEffect(() => {
+    console.log('[WaiterView] Setting up WebSocket connection');
+    
+    // Close any existing connection first
+    if (wsRef.current) {
+      console.log('[WaiterView] Closing existing WebSocket before creating new one');
+      try {
+        wsRef.current.close();
+      } catch (e) {
+        console.error('[WaiterView] Error closing old WebSocket:', e);
+      }
+    }
+    
     wsRef.current = createWS('waiter', (msg) => {
       handleWebSocketMessage(msg);
     }, () => {
@@ -51,13 +170,17 @@ function WaiterView() {
     });
 
     return () => {
+      console.log('[WaiterView] Cleaning up WebSocket');
       try {
-        if (wsRef.current) wsRef.current.close();
+        if (wsRef.current) {
+          wsRef.current.close();
+          wsRef.current = null;
+        }
       } catch (e) {
-        console.error('Error closing WebSocket:', e);
+        console.error('[WaiterView] Error closing WebSocket:', e);
       }
     };
-  }, []);
+  }, []); // Empty dependency array - only run once on mount
 
   const loadOrders = async () => {
     try {
@@ -100,8 +223,11 @@ function WaiterView() {
         [tableNum]: (prev[tableNum] || []).filter((item) => item.id !== data.item_id),
       }));
     } else if (data.action === 'table_finalized' && data.table !== undefined) {
-      // Table finalized
+      // Table finalized successfully
       const tableNum = String(data.table);
+      const receiptId = data.receipt_id || data.session_id || `table-${tableNum}-${Date.now()}`;
+      console.log('[WaiterView] Table finalized successfully:', tableNum, 'Receipt ID:', receiptId);
+      
       setTables((prev) => {
         const newTables = { ...prev };
         delete newTables[tableNum];
@@ -114,6 +240,35 @@ function WaiterView() {
         setOrderText('');
         setPeople('');
         setBread(false);
+      }
+
+      // Open receipt in new tab (only once, global guard against duplicate broadcasts)
+      const receiptKey = `receipt-${receiptId}`;
+      const now = Date.now();
+      const lastOpened = openedReceipts.get(receiptKey);
+      
+      if (!lastOpened || (now - lastOpened) > RECEIPT_GUARD_TIMEOUT) {
+        console.log('[WaiterView] Opening receipt tab for:', receiptId);
+        openedReceipts.set(receiptKey, now);
+        window.open(`/receipt/${receiptId}`, '_blank');
+      } else {
+        console.log('[WaiterView] Receipt already opened (blocked duplicate):', receiptId, 'ms ago:', now - lastOpened);
+      }
+    } else if (data.action === 'finalized_ok' && data.table !== undefined) {
+      // Finalization confirmed
+      console.log('[WaiterView] Finalization confirmed for table:', data.table);
+    } else if (data.action === 'finalize_failed' && data.table !== undefined) {
+      // Finalization failed
+      console.error('[WaiterView] Finalization failed:', data);
+      const reason = data.reason || 'unknown';
+      const pending = data.pending || 0;
+      
+      if (reason === 'items_pending') {
+        alert(`Δεν μπορεί να ολοκληρωθεί το τραπέζι ${data.table}.\nΥπάρχουν ακόμα ${pending} εκκρεμή είδη.`);
+      } else if (reason === 'table_not_found') {
+        alert(`Το τραπέζι ${data.table} δεν βρέθηκε.`);
+      } else {
+        alert(`Αποτυχία ολοκλήρωσης τραπεζιού ${data.table}: ${reason}`);
       }
     } else if (data.action === 'notify') {
       // Notification from kitchen/grill/drinks
@@ -161,30 +316,42 @@ function WaiterView() {
     setLoading(true);
 
     try {
-      console.log('[handleSubmitOrder] sending order...', { payloadTable, payloadText, payloadPeople, payloadBread });
+      console.log('[handleSubmitOrder] previewing order...', { payloadTable, payloadText, payloadPeople, payloadBread });
+      const preview = await previewOrder(payloadTable, payloadText, payloadPeople, payloadBread);
+      const previewList = (preview.classified || []).map((item, idx) => ({
+        ...item,
+        preview_id: `${payloadTable}-${idx}`
+      }));
 
-      // Check if table already has orders
-      const hasExistingOrders = tables[selectedTable] && tables[selectedTable].length > 0;
-
-      if (hasExistingOrders) {
-        console.log('[handleSubmitOrder] calling putOrder');
-        await putOrder(payloadTable, payloadText, payloadPeople, payloadBread);
-      } else {
-        console.log('[handleSubmitOrder] calling postOrder');
-        await postOrder(payloadTable, payloadText, payloadPeople, payloadBread);
-      }
-
-      console.log('[handleSubmitOrder] success, refreshing...');
-      await loadOrders();
-
-      // Clear form
-      setSelectedTable(null);
-      setOrderText('');
-      setPeople('');
-      setBread(false);
+      setPreviewItems(previewList);
+      setPreviewHidden(preview.hidden_items || []);
+      setPreviewUnclassified(preview.unclassified_items || []);
+      setPreviewOpen(true);
     } catch (error) {
       console.error('[handleSubmitOrder] failed', error);
-      alert('Σφάλμα κατά την αποστολή της παραγγελίας: ' + error.message);
+      console.error('[handleSubmitOrder] error details:', {
+        status: error.status,
+        data: error.data,
+        message: error.message
+      });
+      
+      // Check if error is about hidden items
+      // FastAPI returns: { detail: { error: "...", hidden_items: [...] } }
+      const hiddenItems = error.data?.detail?.hidden_items || error.data?.hidden_items;
+      if (error.status === 400 && hiddenItems && hiddenItems.length > 0) {
+        console.log('[handleSubmitOrder] Found hidden items:', hiddenItems);
+        setHiddenItemsPopup({ items: hiddenItems, table: selectedTable });
+      } 
+      // Check if error is about unclassified items
+      else {
+        const unclassifiedItems = error.data?.detail?.unclassified_items || error.data?.unclassified_items;
+        if (error.status === 400 && unclassifiedItems && unclassifiedItems.length > 0) {
+          console.log('[handleSubmitOrder] Found unclassified items:', unclassifiedItems);
+          setUnclassifiedItemsPopup({ items: unclassifiedItems, table: selectedTable });
+        } else {
+          alert('Σφάλμα κατά την αποστολή της παραγγελίας: ' + error.message);
+        }
+      }
     } finally {
       setLoading(false);
     }
@@ -193,19 +360,248 @@ function WaiterView() {
   const handleFinalizeTable = () => {
     if (!selectedTable) return;
 
+    // Show confirmation dialog in Greek
+    const confirmed = window.confirm(
+      `Είστε σίγουροι ότι θέλετε να ολοκληρώσετε το τραπέζι ${selectedTable};\n\nΘα εμφανιστεί η απόδειξη για εκτύπωση.`
+    );
+
+    if (!confirmed) {
+      console.log('[handleFinalizeTable] Finalization cancelled by user');
+      return;
+    }
+
+    console.log('[handleFinalizeTable] Attempting to finalize table:', selectedTable);
+    console.log('[handleFinalizeTable] Current items:', tables[selectedTable]);
+
     try {
       if (wsRef.current && wsRef.current.send) {
-        wsRef.current.send({ action: 'finalize_table', table: parseInt(selectedTable) });
+        const message = { action: 'finalize_table', table: parseInt(selectedTable) };
+        console.log('[handleFinalizeTable] Sending WebSocket message:', message);
+        wsRef.current.send(message);
       } else {
-        console.warn('No websocket available to finalize table. Try reloading or check backend.');
+        console.warn('[handleFinalizeTable] No websocket available to finalize table. Try reloading or check backend.');
+        alert('Δεν υπάρχει σύνδεση WebSocket. Παρακαλώ ανανεώστε τη σελίδα.');
       }
     } catch (e) {
-      console.error('finalizeTable error', e);
+      console.error('[handleFinalizeTable] Error:', e);
+      alert('Σφάλμα κατά την ολοκλήρωση του τραπεζιού: ' + e.message);
+    }
+  }
+
+  const handleConfirmOrder = async () => {
+    if (!selectedTable) return;
+    if (previewHidden.length > 0) {
+      alert('Υπάρχουν είδη που δεν είναι διαθέσιμα. Αφαιρέστε τα πριν την αποστολή.');
+      return;
+    }
+    if (previewUnclassified.length > 0) {
+      alert('Υπάρχουν είδη χωρίς αντιστοίχιση. Διορθώστε τα πριν την αποστολή.');
+      return;
+    }
+
+    const payloadTable = parseInt(selectedTable);
+    const payloadText = orderText;
+    const payloadPeople = people ? parseInt(people, 10) : null;
+    const payloadBread = !!bread;
+
+    setLoading(true);
+    try {
+      const hasExistingOrders = tables[selectedTable] && tables[selectedTable].length > 0;
+      if (hasExistingOrders) {
+        await putOrder(payloadTable, payloadText, payloadPeople, payloadBread);
+      } else {
+        await postOrder(payloadTable, payloadText, payloadPeople, payloadBread);
+      }
+
+      await loadOrders();
+
+      setPreviewOpen(false);
+      setPreviewItems([]);
+      setPreviewHidden([]);
+      setPreviewUnclassified([]);
+
+      setSelectedTable(null);
+      setOrderText('');
+      setPeople('');
+      setBread(false);
+    } catch (error) {
+      console.error('[handleConfirmOrder] failed', error);
+      const hiddenItems = error.data?.detail?.hidden_items || error.data?.hidden_items;
+      if (error.status === 400 && hiddenItems && hiddenItems.length > 0) {
+        setHiddenItemsPopup({ items: hiddenItems, table: selectedTable });
+      } else {
+        const unclassifiedItems = error.data?.detail?.unclassified_items || error.data?.unclassified_items;
+        if (error.status === 400 && unclassifiedItems && unclassifiedItems.length > 0) {
+          setUnclassifiedItemsPopup({ items: unclassifiedItems, table: selectedTable });
+        } else {
+          alert('Σφάλμα κατά την αποστολή της παραγγελίας: ' + error.message);
+        }
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
+  const handleCancelPreview = () => {
+    setPreviewOpen(false);
+    setPreviewItems([]);
+    setPreviewHidden([]);
+    setPreviewUnclassified([]);
+  };
+
+  const handleOpenCorrection = (item, source = 'existing') => {
+    if (source === 'preview') {
+      setPreviewOpen(false);
+    }
+    setSelectedItemForCorrection({ ...item, source });
+  };
+
+  const handleCloseCorrection = () => {
+    setSelectedItemForCorrection(null);
+  };
+
+  const handleSubmitCorrection = async (correctionData) => {
+    setCorrectionLoading(true);
+    try {
+      await captureNlpSample(correctionData);
+
+      console.log('[handleSubmitCorrection] Correction submitted successfully');
+      if (selectedItemForCorrection) {
+        if (selectedItemForCorrection.source === 'preview') {
+          applyPreviewCorrection(selectedItemForCorrection.preview_id, correctionData.corrected_item_id);
+        } else {
+          applyLocalCorrection(selectedItemForCorrection.id, correctionData.corrected_item_id);
+        }
+      }
+      alert('Η διόρθωση καταχωρήθηκε. Ευχαριστούμε!');
+      setSelectedItemForCorrection(null);
+    } catch (error) {
+      console.error('[handleSubmitCorrection] Error:', error);
+      alert('Σφάλμα κατά την υποβολή της διόρθωσης: ' + error.message);
+    } finally {
+      setCorrectionLoading(false);
+    }
+  }
+
   return (
     <div className="waiter-container">
+      {/* Hidden Items Popup Modal */}
+      {hiddenItemsPopup && hiddenItemsPopup.items && hiddenItemsPopup.items.length > 0 && (
+        <div className="waiter-modal-overlay">
+          <div className="waiter-modal">
+            <div className="waiter-modal-header">
+              <h2>⚠️ Ειδη χωρις διαθεσιμοτητα</h2>
+            </div>
+            <div className="waiter-modal-content">
+              <p>Τραπέζι {hiddenItemsPopup.table}: Τα παρακατω ειδη δεν υπαρχουν πλεον στο μενου:</p>
+              <ul className="hidden-items-list">
+                {hiddenItemsPopup.items.map((item, idx) => (
+                  <li key={idx}>{item}</li>
+                ))}
+              </ul>
+              <p style={{ marginTop: '16px', color: '#666' }}>
+                Παρακαλω αφαιρεστε τα ειδη και δοκιμαστε παλι.
+              </p>
+            </div>
+            <div className="waiter-modal-actions">
+              <button 
+                className="primary-button"
+                onClick={() => setHiddenItemsPopup(null)}
+              >
+                Κλεισιμο
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Unclassified Items Popup Modal */}
+      {unclassifiedItemsPopup && unclassifiedItemsPopup.items && unclassifiedItemsPopup.items.length > 0 && (
+        <div className="waiter-modal-overlay">
+          <div className="waiter-modal">
+            <div className="waiter-modal-header">
+              <h2>❓ Αναγνωριση ειδων</h2>
+            </div>
+            <div className="waiter-modal-content">
+              <p>Τραπέζι {unclassifiedItemsPopup.table}: Τα παρακατω ειδη δεν ηταν δυνατον να αναγνωριστουν στο μενου:</p>
+              <ul className="hidden-items-list">
+                {unclassifiedItemsPopup.items.map((item, idx) => (
+                  <li key={idx}>{item}</li>
+                ))}
+              </ul>
+              <p style={{ marginTop: '16px', color: '#666' }}>
+                Παρακαλω διευκρινιστε τα ειδη ή προσθεστε τα στο μενου και δοκιμαστε παλι.
+              </p>
+            </div>
+            <div className="waiter-modal-actions">
+              <button 
+                className="primary-button"
+                onClick={() => setUnclassifiedItemsPopup(null)}
+              >
+                Κλεισιμο
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {previewOpen && (
+        <div className="waiter-modal-overlay">
+          <div className="waiter-modal preview-modal">
+            <div className="waiter-modal-header">
+              <h2>🧾 Επιβεβαίωση Παραγγελίας</h2>
+            </div>
+            <div className="waiter-modal-content">
+              <p>Ελέγξτε την κατάταξη των ειδών πριν αποσταλεί η παραγγελία.</p>
+
+              <div className="preview-list">
+                {previewItems.map((item) => (
+                  <div key={item.preview_id} className="preview-item">
+                    <div className="preview-item-main">
+                      <div className="preview-item-text">{item.text}</div>
+                      <div className="preview-item-match">
+                        {item.menu_name ? `→ ${item.menu_name}` : '— Δεν υπάρχει αντιστοίχιση'}
+                      </div>
+                    </div>
+                    <button
+                      className="correction-link"
+                      onClick={() => handleOpenCorrection(item, 'preview')}
+                    >
+                      ❌ Λάθος;
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              {previewHidden.length > 0 && (
+                <div className="preview-warning">
+                  ⚠️ Περιέχονται είδη που δεν είναι διαθέσιμα: {previewHidden.join(', ')}
+                </div>
+              )}
+
+              {previewUnclassified.length > 0 && (
+                <div className="preview-warning">
+                  ❓ Υπάρχουν είδη χωρίς αντιστοίχιση: {previewUnclassified.join(', ')}
+                </div>
+              )}
+
+              <div className="preview-actions">
+                <button className="btn btn-secondary" onClick={handleCancelPreview}>
+                  Ακύρωση
+                </button>
+                <button
+                  className="btn btn-primary"
+                  onClick={handleConfirmOrder}
+                  disabled={previewHidden.length > 0 || previewUnclassified.length > 0 || loading}
+                >
+                  {loading ? '⏳ Αποστολή...' : '✅ Επιβεβαίωση & Αποστολή'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="waiter-header">
         <div className="waiter-header-content">
@@ -252,6 +648,22 @@ function WaiterView() {
             ΤΡΑΠΕΖΙ {selectedTable}
           </div>
 
+          {/* Menu Display - Hidden/Unavailable Items Only */}
+          {menu && Object.values(menu).flat().some(item => item?.hidden === true) && (
+            <div className="menu-reference">
+              <h3>⚠️ Τα παρακατω ειδη δεν ειναι διαθεσιμα</h3>
+              <div className="hidden-items-display">
+                {Object.entries(menu)
+                  .flatMap(([, items]) => Array.isArray(items) ? items.filter(item => item?.hidden === true) : [])
+                  .map((item) => (
+                    <div key={item.id} className="hidden-item-tag">
+                      {item.name}
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+
           <div className="meta-inputs">
             <div className="input-group">
               <label>
@@ -287,6 +699,15 @@ function WaiterView() {
                     <div className={`item-name ${isStruck ? 'struck' : ''}`}>
                       {qty > 1 ? `${qty}× ` : ''}
                       {displayName}
+                      {item.status === 'pending' && (
+                        <button
+                          className="correction-link"
+                          onClick={() => handleOpenCorrection(item, 'existing')}
+                          title="Διόρθωση κατάταξης"
+                        >
+                          ❌ Λάθος;
+                        </button>
+                      )}
                     </div>
                     <div className="item-details">
                       <div className={`item-status ${statusClass}`}>
@@ -354,6 +775,17 @@ function WaiterView() {
             </button>
           </div>
         </div>
+      )}
+      
+      {/* NLP Correction Modal */}
+      {selectedItemForCorrection && (
+        <CorrectionModal
+          item={selectedItemForCorrection}
+          menu={menu}
+          onSubmit={handleSubmitCorrection}
+          onCancel={handleCloseCorrection}
+          loading={correctionLoading}
+        />
       )}
     </div>
   );

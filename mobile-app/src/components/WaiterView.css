@@ -208,11 +208,95 @@
   font-size: 18px;
   font-weight: 600;
   color: #2c3e50;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
 }
 
 .item-name.struck {
   text-decoration: line-through;
   opacity: 0.6;
+}
+
+.correction-link {
+  background: #ff6b6b;
+  color: white;
+  border: none;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.correction-link:hover {
+  background: #ff5252;
+  transform: scale(1.05);
+}
+
+.correction-link:active {
+  transform: scale(0.95);
+}
+
+.correction-link:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+.preview-modal {
+  max-width: 720px;
+}
+
+.preview-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.preview-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid #eee;
+  border-radius: 8px;
+  background: #fafafa;
+}
+
+.preview-item-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.preview-item-text {
+  font-weight: 600;
+  color: #2c3e50;
+}
+
+.preview-item-match {
+  font-size: 13px;
+  color: #666;
+}
+
+.preview-warning {
+  background: #fff3e0;
+  color: #e65100;
+  padding: 10px 12px;
+  border-radius: 6px;
+  margin-top: 12px;
+}
+
+.preview-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 16px;
 }
 
 .item-details {
@@ -331,3 +415,129 @@
   font-weight: 400;
 }
 
+/* Hidden Items Popup Modal */
+.waiter-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  backdrop-filter: blur(4px);
+}
+
+.waiter-modal {
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  max-width: 500px;
+  width: 90%;
+  overflow: hidden;
+}
+
+.waiter-modal-header {
+  background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%);
+  padding: 24px;
+  color: #fff;
+}
+
+.waiter-modal-header h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.waiter-modal-content {
+  padding: 24px;
+  color: #333;
+}
+
+.waiter-modal-content p {
+  margin: 0 0 12px;
+  line-height: 1.5;
+}
+
+.hidden-items-list {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0;
+  background: #f9f9f9;
+  border-left: 4px solid #ff6b6b;
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+
+.hidden-items-list li {
+  padding: 6px 0;
+  color: #d32f2f;
+  font-weight: 500;
+}
+
+.hidden-items-list li:not(:last-child) {
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.waiter-modal-actions {
+  padding: 16px 24px;
+  border-top: 1px solid #e0e0e0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.waiter-modal-actions .primary-button {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #fff;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.waiter-modal-actions .primary-button:hover {
+  opacity: 0.9;
+}
+
+/* Menu Reference Display - Hidden Items Only */
+.menu-reference {
+  margin: 16px 16px;
+  padding: 12px 16px;
+  background: #fff3cd;
+  border-radius: 12px;
+  border: 2px solid #ff6b6b;
+}
+
+.menu-reference h3 {
+  margin: 0 0 10px;
+  color: #d32f2f;
+  font-size: 14px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.hidden-items-display {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.hidden-item-tag {
+  background: #ff6b6b;
+  color: #fff;
+  padding: 6px 12px;
+  border-radius: 16px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid #d32f2f;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.hidden-item-tag:hover {
+  background: #d32f2f;
+  transform: scale(1.05);
+}

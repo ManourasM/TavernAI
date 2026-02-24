@@ -3,41 +3,17 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import useAuthStore from './store/authStore';
 import useMenuStore from './store/menuStore';
 import useNotificationStore from './store/notificationStore';
+import { AdminRoute, ProtectedRoute, SetupRoute } from './components/RouteGuards';
 
 // Pages
 import LoginPage from './pages/LoginPage';
 import SetupPage from './pages/SetupPage';
 import HomePage from './pages/HomePage';
 import AdminPage from './pages/AdminPage';
-
-// Protected Route Component
-function ProtectedRoute({ children }) {
-  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
-  
-  if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
-  }
-  
-  return children;
-}
-
-// Setup Route Component (requires auth + checks if menu is setup)
-function SetupRoute({ children }) {
-  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
-  const isMenuSetup = useMenuStore((state) => state.isMenuSetup);
-  const user = useAuthStore((state) => state.user);
-  
-  if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
-  }
-  
-  // Only admin can access setup
-  if (user?.role !== 'admin') {
-    return <Navigate to="/home" replace />;
-  }
-  
-  return children;
-}
+import MenuEditor from './pages/Admin/MenuEditor';
+import NLPReview from './pages/Admin/NLPReview';
+import OrdersHistory from './pages/OrdersHistory';
+import ReceiptView from './pages/ReceiptView';
 
 function App() {
   const loadMenu = useMenuStore((state) => state.loadMenu);
@@ -86,8 +62,44 @@ function App() {
         <Route
           path="/admin"
           element={
-            <ProtectedRoute>
+            <AdminRoute>
               <AdminPage />
+            </AdminRoute>
+          }
+        />
+
+        <Route
+          path="/admin/menu"
+          element={
+            <AdminRoute>
+              <MenuEditor />
+            </AdminRoute>
+          }
+        />
+
+        <Route
+          path="/admin/nlp"
+          element={
+            <AdminRoute>
+              <NLPReview />
+            </AdminRoute>
+          }
+        />
+
+        <Route
+          path="/history"
+          element={
+            <ProtectedRoute>
+              <OrdersHistory />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/receipt/:receiptId"
+          element={
+            <ProtectedRoute>
+              <ReceiptView />
             </ProtectedRoute>
           }
         />

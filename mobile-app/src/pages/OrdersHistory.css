@@ -1,0 +1,264 @@
+/* src/pages/OrdersHistory.css */
+/* Styling for order history page */
+
+.orders-history-page {
+  padding: 1rem;
+  max-width: 1200px;
+  margin: 0 auto;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.history-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.back-button {
+  background: #6c757d;
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.back-button:hover {
+  background: #5a6268;
+}
+
+.history-header h1 {
+  margin: 0;
+  font-size: 1.75rem;
+  color: #333;
+}
+
+.history-filters {
+  background: #f8f9fa;
+  padding: 1.5rem;
+  border-radius: 8px;
+  margin-bottom: 1.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-end;
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.filter-group label {
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: #555;
+}
+
+.filter-group input {
+  padding: 0.5rem;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 1rem;
+  min-width: 150px;
+}
+
+.filter-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.search-button,
+.clear-button {
+  padding: 0.5rem 1.5rem;
+  border: none;
+  border-radius: 6px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.search-button {
+  background: #007bff;
+  color: white;
+}
+
+.search-button:hover:not(:disabled) {
+  background: #0056b3;
+}
+
+.search-button:disabled {
+  background: #6c757d;
+  cursor: not-allowed;
+}
+
+.clear-button {
+  background: #6c757d;
+  color: white;
+}
+
+.clear-button:hover {
+  background: #5a6268;
+}
+
+.history-error {
+  background: #f8d7da;
+  color: #721c24;
+  padding: 1rem;
+  border-radius: 6px;
+  margin-bottom: 1rem;
+  border: 1px solid #f5c6cb;
+}
+
+.history-loading,
+.history-empty {
+  text-align: center;
+  padding: 3rem;
+  font-size: 1.125rem;
+  color: #6c757d;
+}
+
+.history-list {
+  display: grid;
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.history-item {
+  background: white;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 1rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.history-item:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  transform: translateY(-2px);
+  border-color: #007bff;
+}
+
+.receipt-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.receipt-table {
+  font-weight: 700;
+  font-size: 1.125rem;
+  color: #333;
+}
+
+.receipt-date {
+  font-size: 0.875rem;
+  color: #6c757d;
+}
+
+.receipt-details {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+  font-size: 1rem;
+}
+
+.receipt-items {
+  color: #6c757d;
+}
+
+.receipt-total {
+  font-weight: 700;
+  font-size: 1.125rem;
+  color: #28a745;
+}
+
+.receipt-id {
+  font-size: 0.75rem;
+  color: #adb5bd;
+  font-family: 'Courier New', monospace;
+}
+
+.history-pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1rem;
+  padding: 2rem 0;
+}
+
+.page-button {
+  padding: 0.5rem 1rem;
+  background: #007bff;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.page-button:hover:not(:disabled) {
+  background: #0056b3;
+}
+
+.page-button:disabled {
+  background: #6c757d;
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.page-info {
+  font-size: 0.875rem;
+  color: #6c757d;
+}
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+  .orders-history-page {
+    padding: 0.5rem;
+  }
+
+  .history-header h1 {
+    font-size: 1.25rem;
+  }
+
+  .history-filters {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .filter-group input {
+    min-width: 100%;
+  }
+
+  .filter-actions {
+    margin-left: 0;
+    flex-direction: column;
+  }
+
+  .search-button,
+  .clear-button {
+    width: 100%;
+  }
+
+  .receipt-header,
+  .receipt-details {
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .history-pagination {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .page-button {
+    width: 100%;
+  }
+}

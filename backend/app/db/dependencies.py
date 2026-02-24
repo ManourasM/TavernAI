@@ -42,7 +42,7 @@ async def get_db_session(request: Request):
     """
     FastAPI dependency for injecting database session into route handlers.
     
-    Yields a SQLAlchemy session for SQLiteStorage, or None for in-memory storage.
+    Yields a SQLAlchemy session for SQLiteStorage or SQLAlchemyStorage.
     Properly handles session cleanup.
     
     Args:
@@ -58,6 +58,9 @@ async def get_db_session(request: Request):
     
     try:
         if isinstance(storage, SQLiteStorage):
+            SessionLocal = sessionmaker(bind=storage.engine)
+            session = SessionLocal()
+        elif isinstance(storage, SQLAlchemyStorage):
             SessionLocal = sessionmaker(bind=storage.engine)
             session = SessionLocal()
         yield session

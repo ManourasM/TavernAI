@@ -54,9 +54,15 @@ def init_db(engine: Engine, use_alembic: bool = True, base: Optional[Any] = None
         except Exception as e:
             raise RuntimeError(f"Alembic migration failed: {e}")
     else:
-        # Fallback: create all tables directly (dev convenience, no migration tracking)
-        # This is safe for development but should not be used in production
-        base.metadata.create_all(engine)
+        # Fallback: create only missing tables (preserve existing data for development)
+        print(f"[init_db] Creating missing tables from {base.__name__} schema (preserving existing data)...")
+        try:
+            base.metadata.create_all(engine)
+            print(f"[init_db] ✅ Schema synchronized successfully (no data was dropped)")
+        except Exception as e:
+            print(f"[init_db] ⚠️ Error creating tables: {e}")
+            raise RuntimeError(f"Failed to create database tables: {e}")
+
 
 
 __all__ = ["Base", "init_db"]

@@ -10,11 +10,11 @@ import os
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import create_engine, select, delete
+from sqlalchemy import create_engine, select, delete, func
 from sqlalchemy.orm import sessionmaker, Session
 
 from app.storage.base import Storage
-from app.db.models import Base, Order, OrderItem, TableSession, MenuItem
+from app.db.models import Base, Order, OrderItem, TableSession, MenuItem, Receipt
 from app.db import init_db
 
 
@@ -49,7 +49,18 @@ class SQLAlchemyStorage(Storage):
         
         # Initialize database schema using canonical models
         use_alembic = os.getenv("USE_ALEMBIC", "false").lower() == "true"
-        init_db(self.engine, use_alembic=use_alembic, base=Base)
+        try:
+            init_db(self.engine, use_alembic=use_alembic, base=Base)
+            print(f"[SQLAlchemyStorage] ✅ Database initialized successfully at {self.database_url}")
+        except Exception as e:
+            print(f"[SQLAlchemyStorage] ⚠️ Warning during database initialization: {e}")
+            # Only create missing tables, don't drop existing data
+            try:
+                Base.metadata.create_all(self.engine)
+                print(f"[SQLAlchemyStorage] ✅ Created missing tables (existing data preserved)")
+            except Exception as fallback_error:
+                print(f"[SQLAlchemyStorage] ❌ Failed to create tables: {fallback_error}")
+                # Don't raise here - allow app to start anyway, may work partially
         
         # UUID to DB ID mapping (in-memory for backward compat)
         self._uuid_to_db_id: Dict[str, int] = {}
@@ -113,31 +124,117 @@ class SQLAlchemyStorage(Storage):
         finally:
             db_session.close()
     
-    def delete_table(self, table_id: int) -> None:
-        """Delete a table and all its associated orders."""
+    def delete_table(self, table_id: int) -> int:
+        """Close the current table session and create receipt. Returns the receipt ID."""
         db_session = self._get_session()
         try:
-            with db_session.begin():
-                # Find all table sessions for this table
-                stmt = select(TableSession).where(TableSession.table_label == str(table_id))
-                sessions = db_session.execute(stmt).scalars().all()
+            from datetime import datetime
+            import json
+            print(f"[delete_table] Closing sessions for table {table_id}")
+            
+            # Find open table sessions for this table
+            stmt = (
+                select(TableSession)
+                .where(TableSession.table_label == str(table_id))
+                .where(TableSession.closed_at.is_(None))
+            )
+            sessions = db_session.execute(stmt).scalars().all()
+            
+            print(f"[delete_table] Found {len(sessions)} open sessions")
+            
+            receipt_id = None
+            for ts in sessions:
+                # Close the session
+                ts.closed_at = datetime.utcnow()
+                session_id = ts.id
+                print(f"[delete_table] Closing session {session_id} for table {ts.table_label}")
                 
-                for ts in sessions:
-                    # Delete all orders for this session (cascades to OrderItems)
-                    db_session.execute(
-                        delete(Order).where(Order.table_session_id == ts.id)
+                # Find all orders for this session
+                orders_stmt = select(Order).where(Order.table_session_id == session_id)
+                orders = db_session.execute(orders_stmt).scalars().all()
+                print(f"[delete_table] Found {len(orders)} orders for session {session_id}")
+                
+                # Collect ALL items from ALL orders in this session
+                all_items = []
+                primary_order_id = None
+                for order in orders:
+                    if primary_order_id is None:
+                        primary_order_id = order.id
+                    items_stmt = select(OrderItem).where(OrderItem.order_id == order.id)
+                    items = db_session.execute(items_stmt).scalars().all()
+                    all_items.extend(items)
+                
+                print(f"[delete_table] Collected {len(all_items)} total items from all orders")
+                
+                # Check if receipt already exists for the primary order
+                if primary_order_id:
+                    existing_receipt = db_session.execute(
+                        select(Receipt).where(Receipt.order_id == primary_order_id)
+                    ).scalar_one_or_none()
+                    
+                    if existing_receipt:
+                        print(f"[delete_table] Receipt already exists, using receipt_id={existing_receipt.id}")
+                        receipt_id = existing_receipt.id
+                        continue
+                
+                # Build receipt content with ALL items from the session
+                receipt_content = {
+                    "table": ts.table_label,
+                    "created_at": ts.opened_at.isoformat() if ts.opened_at else None,
+                    "closed_at": ts.closed_at.isoformat() if ts.closed_at else None,
+                    "items": [
+                        {
+                            "name": item.name,
+                            "quantity": item.qty or 1,
+                            "unit_price": (item.unit_price / 100.0) if item.unit_price else 0,
+                            "line_total": ((item.unit_price or 0) * (item.qty or 1)) / 100.0,
+                            "status": item.status,
+                        }
+                        for item in all_items if item.status != 'cancelled'
+                    ],
+                    "total": sum(
+                        ((item.unit_price or 0) * (item.qty or 1)) / 100.0
+                        for item in all_items if item.status != 'cancelled'
                     )
-                    # Delete the table session
-                    db_session.delete(ts)
+                }
+                
+                # Create ONE receipt record for the entire session
+                if primary_order_id:
+                    receipt = Receipt(
+                        order_id=primary_order_id,
+                        content=json.dumps(receipt_content),
+                        printed_at=None
+                    )
+                    db_session.add(receipt)
+                    db_session.flush()  # Get the ID
+                    receipt_id = receipt.id
+                    print(f"[delete_table] Created single receipt_id={receipt_id} for session {session_id} with {len(all_items)} items")
+            
+            # Commit all changes
+            db_session.commit()
+            print(f"[delete_table] Successfully closed session and created receipt_id={receipt_id}")
+            
+            return receipt_id
+        except Exception as e:
+            print(f"[delete_table] ERROR: {e}")
+            import traceback
+            traceback.print_exc()
+            db_session.rollback()
+            raise
         finally:
             db_session.close()
+
     
     def list_tables(self) -> List[int]:
-        """List all table IDs that have orders or metadata."""
+        """List all table IDs that have open sessions."""
         db_session = self._get_session()
         try:
-            # Get all distinct table_labels from TableSessions
-            stmt = select(TableSession.table_label).distinct()
+            # Get all distinct table_labels from OPEN TableSessions only
+            stmt = (
+                select(TableSession.table_label)
+                .where(TableSession.closed_at.is_(None))
+                .distinct()
+            )
             labels = db_session.execute(stmt).scalars().all()
             
             # Convert to ints (if possible)
@@ -159,6 +256,7 @@ class SQLAlchemyStorage(Storage):
             stmt = (
                 select(TableSession)
                 .where(TableSession.table_label == str(table_id))
+                .where(TableSession.closed_at.is_(None))
             )
             exists = db_session.execute(stmt).scalar_one_or_none() is not None
             return exists
@@ -173,12 +271,17 @@ class SQLAlchemyStorage(Storage):
                 # Get or create table session
                 table_session = self._get_or_create_table_session(db_session, table_id)
                 
+                # Handle None values for numeric fields
+                line_total = order.get("line_total") or 0
+                unit_price = order.get("unit_price") or 0
+                qty = order.get("qty") or 1
+                
                 # Create Order if needed (one Order per add_order call for now)
                 db_order = Order(
                     table_session_id=table_session.id,
                     created_by_user_id=0,  # Anonymous for legacy compat
                     status="pending",
-                    total=int(round(order.get("line_total", 0) * 100))
+                    total=int(round(line_total * 100))
                 )
                 db_session.add(db_order)
                 db_session.flush()
@@ -197,10 +300,12 @@ class SQLAlchemyStorage(Storage):
                     order_id=db_order.id,
                     menu_item_id=menu_item_id,
                     name=order.get("menu_name") or order.get("text", "Unknown"),
-                    qty=order.get("qty", 1),
+                    text=order.get("text"),  # Store original user input
+                    qty=int(qty),
                     unit=None,
-                    unit_price=int(round(order.get("unit_price", 0) * 100)),
-                    line_total=int(round(order.get("line_total", 0) * 100)),
+                    unit_price=int(round(unit_price * 100)),
+                    line_total=int(round(line_total * 100)),
+                    category=order.get("category"),  # Store category for routing
                     status=order.get("status", "pending")
                 )
                 db_session.add(order_item)
@@ -252,14 +357,14 @@ class SQLAlchemyStorage(Storage):
                     item_dict = {
                         "id": item_uuid,
                         "table": table_id,
-                        "text": item.name,
+                        "text": item.text or item.name,  # Use original text if available, fallback to name
                         "menu_name": item.name,
                         "name": item.name,
                         "qty": item.qty,
                         "unit_price": item.unit_price / 100.0 if item.unit_price else 0,
                         "line_total": item.line_total / 100.0 if item.line_total else 0,
                         "menu_id": item.menu_item.external_id if item.menu_item else None,
-                        "category": self._infer_category(item),
+                        "category": item.category or self._infer_category(item),  # Use stored category first
                         "status": item.status,
                         "created_at": order.created_at.isoformat() + "Z" if order.created_at else None,
                     }
@@ -421,12 +526,201 @@ class SQLAlchemyStorage(Storage):
         finally:
             db_session.close()
     
+    def get_history(self, from_date=None, to_date=None, table_id=None, limit=50, offset=0):
+        """Get closed table sessions (history) with optional filters."""
+        db_session = self._get_session()
+        try:
+            from datetime import datetime, timedelta
+            
+            print(f"[get_history] Filters: from_date={from_date}, to_date={to_date}, table_id={table_id}, limit={limit}, offset={offset}")
+            
+            # Query for closed sessions
+            stmt = (
+                select(TableSession)
+                .where(TableSession.closed_at.isnot(None))
+            )
+            
+            # Apply filters
+            if table_id is not None:
+                stmt = stmt.where(TableSession.table_label == str(table_id))
+            
+            if from_date:
+                if isinstance(from_date, str):
+                    # Handle YYYY-MM-DD format
+                    try:
+                        from_date = datetime.strptime(from_date, '%Y-%m-%d')
+                    except ValueError:
+                        from_date = datetime.fromisoformat(from_date.replace('Z', '+00:00'))
+                stmt = stmt.where(TableSession.closed_at >= from_date)
+            
+            if to_date:
+                if isinstance(to_date, str):
+                    # Handle YYYY-MM-DD format
+                    try:
+                        to_date = datetime.strptime(to_date, '%Y-%m-%d')
+                    except ValueError:
+                        to_date = datetime.fromisoformat(to_date.replace('Z', '+00:00'))
+                # End of day
+                to_date = to_date + timedelta(days=1)
+                stmt = stmt.where(TableSession.closed_at < to_date)
+            
+            # Order by closed_at descending (newest first)
+            stmt = stmt.order_by(TableSession.closed_at.desc())
+            
+            # Count total before pagination
+            count_stmt = select(func.count()).select_from(stmt.alias())
+            total = db_session.execute(count_stmt).scalar()
+            
+            print(f"[get_history] Found {total} total sessions")
+            
+            # Apply pagination
+            stmt = stmt.offset(offset).limit(limit)
+            
+            sessions = db_session.execute(stmt).scalars().all()
+            
+            print(f"[get_history] Returning {len(sessions)} sessions for this page")
+            
+            results = []
+            for session in sessions:
+                # Get all items for this session
+                items_stmt = (
+                    select(OrderItem)
+                    .join(Order)
+                    .where(Order.table_session_id == session.id)
+                )
+                items = db_session.execute(items_stmt).scalars().all()
+                
+                # Calculate total using correct field names
+                total_amount = sum(
+                    ((item.unit_price or 0) / 100.0) * (item.qty or 1)
+                    for item in items
+                    if item.status != 'cancelled'
+                )
+                
+                results.append({
+                    'id': session.id,
+                    'table': int(session.table_label) if session.table_label.isdigit() else session.table_label,
+                    'items': [self._order_item_to_dict(item) for item in items],
+                    'total': total_amount,
+                    'closed_at': session.closed_at.isoformat() if session.closed_at else None,
+                    'created_at': session.opened_at.isoformat() if session.opened_at else None,
+                })
+            
+            return {
+                'items': results,
+                'total': total,
+                'limit': limit,
+                'offset': offset
+            }
+        finally:
+            db_session.close()
+    
+    def get_session_by_id(self, session_id):
+        """Get a specific session (receipt) by ID."""
+        db_session = self._get_session()
+        try:
+            print(f"[get_session_by_id] Looking for session_id={session_id}, type={type(session_id)}")
+            
+            # Ensure session_id is an integer
+            try:
+                session_id = int(session_id)
+            except (ValueError, TypeError):
+                print(f"[get_session_by_id] Invalid session_id format: {session_id}")
+                return None
+            
+            # Get the session - include both open and closed sessions
+            stmt = select(TableSession).where(TableSession.id == session_id)
+            session = db_session.execute(stmt).scalar_one_or_none()
+            
+            if not session:
+                # Debug: list all sessions
+                all_sessions_stmt = select(TableSession)
+                all_sessions = db_session.execute(all_sessions_stmt).scalars().all()
+                print(f"[get_session_by_id] Session {session_id} not found. Total sessions in DB: {len(all_sessions)}")
+                for s in all_sessions:
+                    print(f"  Session ID={s.id}, table={s.table_label}, closed_at={s.closed_at}")
+                return None
+            
+            print(f"[get_session_by_id] Found session {session_id}, table={session.table_label}, closed_at={session.closed_at}")
+            
+            # Get all items for this session
+            items_stmt = (
+                select(OrderItem)
+                .join(Order)
+                .where(Order.table_session_id == session.id)
+            )
+            items = db_session.execute(items_stmt).scalars().all()
+            
+            print(f"[get_session_by_id] Found {len(items)} items for session {session_id}")
+            
+            # Calculate total using correct field names
+            total_amount = sum(
+                ((item.unit_price or 0) / 100.0) * (item.qty or 1)
+                for item in items
+                if item.status != 'cancelled'
+            )
+            
+            result = {
+                'id': session.id,
+                'table': int(session.table_label) if session.table_label.isdigit() else session.table_label,
+                'items': [self._order_item_to_dict(item) for item in items],
+                'total': total_amount,
+                'closed_at': session.closed_at.isoformat() if session.closed_at else None,
+                'created_at': session.opened_at.isoformat() if session.opened_at else None,
+            }
+            
+            print(f"[get_session_by_id] Returning receipt with {len(result['items'])} items, total={total_amount}")
+            return result
+        except Exception as e:
+            print(f"[get_session_by_id] ERROR: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+        finally:
+            db_session.close()
+    
     def close(self) -> None:
         """Close database connections."""
         self.engine.dispose()
     
     def _infer_category(self, item: OrderItem) -> str:
         """Infer category from OrderItem."""
-        if item.menu_item and item.menu_item.station:
-            return item.menu_item.station
+        # First check if category is stored directly
+        if hasattr(item, 'category') and item.category:
+            return item.category
+        # Then check menu item
+        if item.menu_item:
+            if hasattr(item.menu_item, 'station') and item.menu_item.station:
+                return item.menu_item.station
+            if hasattr(item.menu_item, 'category') and item.menu_item.category:
+                return item.menu_item.category
+        # Default to kitchen
+        return "kitchen"
+    
+    def _order_item_to_dict(self, item: OrderItem) -> Dict[str, Any]:
+        """Convert OrderItem to dictionary format."""
+        # Generate or retrieve UUID
+        item_uuid = None
+        for uuid, db_id in self._uuid_to_db_id.items():
+            if db_id == item.id:
+                item_uuid = uuid
+                break
+        if not item_uuid:
+            item_uuid = str(uuid4())
+            self._uuid_to_db_id[item_uuid] = item.id
+        
+        return {
+            "id": item_uuid,
+            "name": item.name,
+            "menu_name": item.name,
+            "text": item.text or item.name,
+            "quantity": item.qty or 1,
+            "price": (item.unit_price / 100.0) if item.unit_price else 0,
+            "line_total": (item.line_total / 100.0) if item.line_total else 0,
+            "category": item.category or self._infer_category(item),
+            "status": item.status,
+            "menu_id": item.menu_item.external_id if item.menu_item else None,
+        }
+        if hasattr(item.menu_item, 'category') and item.menu_item.category:
+            return item.menu_item.category
         return "kitchen"

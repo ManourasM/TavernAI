@@ -1,7 +1,7 @@
 # backend/app/main.py
 import asyncio
 import os
-from typing import Dict, List
+from typing import Dict, List, Optional, Any
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query, Request, Depends
 from pydantic import BaseModel
 from uuid import uuid4
@@ -12,12 +12,14 @@ import re
 import unicodedata
 from sqlalchemy.orm import sessionmaker
 
-from app.nlp import classify_order, MENU_ITEMS  # Greek-capable classifier + menu lookup
+from app.nlp import classify_order, MENU_ITEMS, build_override_rules  # Greek-capable classifier + menu lookup
 from app.storage import Storage, InMemoryStorage, SQLiteStorage, SQLAlchemyStorage  # Storage abstraction
 from app.api.menu_router import router as menu_router
 from app.api.receipts_router import router as receipts_router
 from app.api.nlp_router import router as nlp_router
 from app.api.auth_router import router as auth_router
+from app.db.dependencies import get_db_session
+from app.db.models import NLPTrainingSample
 from app.db import order_utils  # Helper functions for normalized Order/OrderItem domain
 
 app = FastAPI(title="Tavern Ordering Backend (MVP)")
@@ -34,6 +36,8 @@ app.add_middleware(
 # Initialize storage backend based on environment variable
 # Options: "inmemory", "sqlite" (legacy), "sqlalchemy" (normalized models)
 storage_backend = os.getenv("STORAGE_BACKEND", "inmemory").lower()
+print(f"[main] STORAGE_BACKEND environment variable: {os.getenv('STORAGE_BACKEND', 'NOT SET')}")
+print(f"[main] Selected storage backend: {storage_backend}")
 
 if storage_backend == "sqlalchemy":
     # Use normalized Order/OrderItem models
@@ -44,9 +48,11 @@ if storage_backend == "sqlalchemy":
     os.makedirs(data_dir, exist_ok=True)
     
     # Construct database path: data/{restaurant_id}.db
-    db_path = os.path.join(data_dir, f"{restaurant_id}.db")
+    # Use forward slashes for SQLite URLs (works on all platforms)
+    db_path = os.path.join(data_dir, f"{restaurant_id}.db").replace("\\", "/")
     db_url = f"sqlite:///{db_path}"
     
+    print(f"[main] Initializing SQLAlchemy storage with: {db_url}")
     app.state.storage = SQLAlchemyStorage(db_url)
 elif storage_backend == "sqlite":
     # Legacy SQLite storage (flat OrderModel)
@@ -57,13 +63,19 @@ elif storage_backend == "sqlite":
     os.makedirs(data_dir, exist_ok=True)
     
     # Construct database path: data/{restaurant_id}.db
-    db_path = os.path.join(data_dir, f"{restaurant_id}.db")
+    # Use forward slashes for SQLite URLs (works on all platforms)
+    db_path = os.path.join(data_dir, f"{restaurant_id}.db").replace("\\", "/")
     db_url = f"sqlite:///{db_path}"
     
+    print(f"[main] Initializing SQLite storage with: {db_url}")
     app.state.storage = SQLiteStorage(db_url)
 else:
     # Default to in-memory (inmemory or any unrecognized value)
+    print(f"[main] Initializing InMemory storage (no persistence)")
     app.state.storage = InMemoryStorage()
+
+print(f"[main] ✅ Storage backend initialized: {storage_backend}")
+
 
 
 # ---------- Register API routers ----------
@@ -397,6 +409,7 @@ def _make_item(line_text: str, table: int, category: str, menu_id: str = None,
         qty = multiplier
         unit_price = price
         matched_id = menu_id
+        # When we have a menu match, use menu_name for display (cleaner name without quantity)
         parsed_name = menu_name or line_text
     else:
         # Fallback to old parsing (for backwards compatibility)
@@ -409,6 +422,11 @@ def _make_item(line_text: str, table: int, category: str, menu_id: str = None,
             line_total = round(qty * float(unit_price), 2)
         except Exception:
             line_total = None
+
+    # Ensure parsed_name doesn't have quantity prefix
+    # If menu_name wasn't provided but we have classification, parse it from text
+    if not menu_name and parsed_name == line_text:
+        _, parsed_name = _parse_qty_and_name(line_text)
 
     return {
         "id": str(uuid4()),
@@ -466,9 +484,95 @@ async def get_config(request: Request):
     return {"backend_base": base, "ws_base": ws_base, "backend_port": port}
 
 
+# Helper function to check if unclassified order lines match hidden items
+def check_for_hidden_items_in_order(order_text: str, menu_dict: Dict[str, Any]) -> List[str]:
+    """
+    Check if order lines match hidden menu items, using fuzzy matching.
+    This catches attempts to order items that have been hidden.
+    
+    Uses keyword-based fuzzy matching to handle variations like:
+    - "κατσικι" matching "Κατσικάκι λεμονάτο" 
+    - "2 Ντακος" matching "Ντάκος"
+    
+    Args:
+        order_text: Raw user order text
+        menu_dict: Full menu dictionary (including hidden items)
+        
+    Returns:
+        List of hidden item names matched, or empty list if none
+    """
+    from app.nlp import _normalize_text_basic, _strip_accents
+    
+    hidden_items = []
+    
+    if not menu_dict or not order_text:
+        return hidden_items
+    
+    # Parse order lines
+    lines = [ln.strip() for ln in order_text.splitlines() if ln.strip()]
+    
+    # Build set of all hidden items
+    hidden_items_list = []
+    for section_items in menu_dict.values():
+        if isinstance(section_items, list):
+            for item in section_items:
+                if isinstance(item, dict) and item.get("hidden") is True:
+                    if item.get("name"):
+                        hidden_items_list.append(item.get("name"))
+                        print(f"[check_for_hidden_items] Found hidden item: {item.get('name')}")
+    
+    print(f"[check_for_hidden_items] Total hidden items: {len(hidden_items_list)}")
+    print(f"[check_for_hidden_items] Order lines: {lines}")
+    
+    def normalize_and_tokenize(text):
+        """Normalize text and return tokens (keywords)."""
+        normalized = _normalize_text_basic(text).lower()
+        no_accents = _strip_accents(normalized).lower()
+        # Split into tokens and filter out single chars and numbers
+        tokens = [t for t in no_accents.split() if len(t) > 1 and not t.isdigit()]
+        return tokens
+    
+    def token_similarity(tokens1, tokens2):
+        """
+        Check if tokens from text1 have similar matches in text2.
+        Returns True if any token from text1 is similar to any token in text2.
+        """
+        for t1 in tokens1:
+            for t2 in tokens2:
+                # Calculate Levenshtein distance
+                dist = _levenshtein(t1, t2)
+                # Consider match if distance is < 2 or similarity > 80%
+                max_len = max(len(t1), len(t2))
+                if max_len == 0:
+                    continue
+                similarity = 1 - (dist / max_len)
+                if similarity > 0.75:  # 75% match threshold
+                    print(f"[check_for_hidden_items]   Token match: '{t1}' ~ '{t2}' (sim={similarity:.2f})")
+                    return True
+        return False
+    
+    # For each order line, check if it matches any hidden item
+    for line in lines:
+        line_tokens = normalize_and_tokenize(line)
+        
+        if not line_tokens:
+            continue
+        
+        for hidden_name in hidden_items_list:
+            hidden_tokens = normalize_and_tokenize(hidden_name)
+            
+            # Check if line tokens are similar to hidden item tokens
+            if token_similarity(line_tokens, hidden_tokens):
+                if hidden_name not in hidden_items:
+                    hidden_items.append(hidden_name)
+                    print(f"[check_for_hidden_items] MATCH! '{line}' matches hidden item '{hidden_name}'")
+    
+    return hidden_items
+
+
 # ---------- API Endpoints ----------
 @app.post("/order/", summary="Submit a new order (table + free-text lines)")
-async def submit_order(payload: SubmitOrder, storage: Storage = Depends(get_storage)):
+async def submit_order(payload: SubmitOrder, storage: Storage = Depends(get_storage), db_session = Depends(get_db_session)):
     """
     Accept table number, multi-line order_text (one dish per line) and optional table metadata.
     Classify each line, store items, push them to the proper station(s), and save table meta.
@@ -477,8 +581,46 @@ async def submit_order(payload: SubmitOrder, storage: Storage = Depends(get_stor
         # save table-level metadata
         storage.set_table(payload.table, {"people": payload.people, "bread": bool(payload.bread)})
 
+        # Get the full menu (including hidden items)
+        from app.db.menu_access import get_latest_menu
+        latest_menu = get_latest_menu(db_session)
+        print(f"[submit_order] Menu loaded, db_session: {db_session}")
+        
+        # Check if order contains hidden items (before classification)
+        hidden_items = check_for_hidden_items_in_order(payload.order_text, latest_menu)
+        if hidden_items:
+            print(f"[submit_order] Hidden items found: {hidden_items}")
+            raise HTTPException(
+                status_code=400,
+                detail={"error": "Order contains unavailable items", "hidden_items": hidden_items}
+            )
+
+        # Build NLP override rules from corrections (latest per raw text)
+        override_rules = {}
+        if db_session:
+            try:
+                samples = (
+                    db_session.query(NLPTrainingSample)
+                    .filter(NLPTrainingSample.corrected_menu_item_id.isnot(None))
+                    .order_by(NLPTrainingSample.created_at.desc())
+                    .all()
+                )
+                override_rules = build_override_rules(samples, latest_menu)
+            except Exception as e:
+                print(f"[submit_order] Failed to load NLP override rules: {e}")
+
         # classify_order now returns: {text, category, menu_id, menu_name, price, multiplier}
-        classified = classify_order(payload.order_text)
+        classified = classify_order(payload.order_text, override_rules=override_rules)
+        
+        # Check for unclassified items (items that couldn't be matched to menu)
+        unclassified_items = [item["text"] for item in classified if item.get("menu_name") is None]
+        if unclassified_items:
+            print(f"[submit_order] Unclassified items found: {unclassified_items}")
+            raise HTTPException(
+                status_code=400,
+                detail={"error": "Order contains unidentified items", "unclassified_items": unclassified_items}
+            )
+        
         created_items = []
         for entry in classified:
             item = _make_item(
@@ -513,6 +655,42 @@ async def submit_order(payload: SubmitOrder, storage: Storage = Depends(get_stor
     return {"status": "ok", "created": created_items}
 
 
+@app.post("/order/preview", summary="Preview order classification without sending")
+async def preview_order(payload: SubmitOrder, db_session = Depends(get_db_session)):
+    """
+    Preview classification results without creating items or broadcasting.
+    Returns classification along with hidden/unclassified lists for confirmation UI.
+    """
+    # Get the full menu (including hidden items)
+    from app.db.menu_access import get_latest_menu
+    latest_menu = get_latest_menu(db_session)
+
+    # Build NLP override rules from corrections (latest per raw text)
+    override_rules = {}
+    if db_session:
+        try:
+            samples = (
+                db_session.query(NLPTrainingSample)
+                .filter(NLPTrainingSample.corrected_menu_item_id.isnot(None))
+                .order_by(NLPTrainingSample.created_at.desc())
+                .all()
+            )
+            override_rules = build_override_rules(samples, latest_menu)
+        except Exception as e:
+            print(f"[preview_order] Failed to load NLP override rules: {e}")
+
+    classified = classify_order(payload.order_text, override_rules=override_rules)
+
+    hidden_items = check_for_hidden_items_in_order(payload.order_text, latest_menu)
+    unclassified_items = [item["text"] for item in classified if item.get("menu_name") is None]
+
+    return {
+        "classified": classified,
+        "hidden_items": hidden_items,
+        "unclassified_items": unclassified_items
+    }
+
+
 @app.get("/table_meta/{table}")
 async def get_table_meta(table: int, storage: Storage = Depends(get_storage)):
     return storage.get_table(table)
@@ -535,7 +713,7 @@ async def list_orders(include_history: bool = Query(False, description="If true 
 
 
 @app.put("/order/{table}", summary="Replace/Update the active order for a table")
-async def replace_table_order(table: int, payload: SubmitOrder, storage: Storage = Depends(get_storage)):
+async def replace_table_order(table: int, payload: SubmitOrder, storage: Storage = Depends(get_storage), db_session = Depends(get_db_session)):
     """
     Smarter replace: only replace the changed lines.
     - Reuse pending items that match (normalized text + category) to avoid duplication.
@@ -556,8 +734,41 @@ async def replace_table_order(table: int, payload: SubmitOrder, storage: Storage
         asyncio.create_task(broadcast_to_station("drinks", msg_meta))
         asyncio.create_task(broadcast_to_station("waiter", msg_meta))
 
-        # Classify new payload
-        classified = classify_order(payload.order_text)
+        # Get full menu and check for hidden items
+        from app.db.menu_access import get_latest_menu
+        latest_menu = get_latest_menu(db_session)
+
+        # Classify new payload with NLP override rules
+        override_rules = {}
+        if db_session:
+            try:
+                samples = (
+                    db_session.query(NLPTrainingSample)
+                    .filter(NLPTrainingSample.corrected_menu_item_id.isnot(None))
+                    .order_by(NLPTrainingSample.created_at.desc())
+                    .all()
+                )
+                override_rules = build_override_rules(samples, latest_menu)
+            except Exception as e:
+                print(f"[replace_table_order] Failed to load NLP override rules: {e}")
+
+        classified = classify_order(payload.order_text, override_rules=override_rules)
+        hidden_items = check_for_hidden_items_in_order(payload.order_text, latest_menu)
+        
+        if hidden_items:
+            raise HTTPException(
+                status_code=400,
+                detail={"error": "Order contains unavailable items", "hidden_items": hidden_items}
+            )
+        
+        # Check for unclassified items
+        unclassified_items = [item["text"] for item in classified if item.get("menu_name") is None]
+        if unclassified_items:
+            print(f"[replace_table_order] Unclassified items found: {unclassified_items}")
+            raise HTTPException(
+                status_code=400,
+                detail={"error": "Order contains unidentified items", "unclassified_items": unclassified_items}
+            )
 
         # Use different logic based on storage backend
         if isinstance(storage, SQLAlchemyStorage):
@@ -790,6 +1001,21 @@ async def mark_item_done(item_id: str, storage: Storage = Depends(get_storage)):
     return {"status": "ok", "item": found_item}
 
 
+# ---------- History endpoints for receipts ----------
+# ===== HISTORY ENDPOINTS MOVED TO receipts_router =====
+# These endpoints are now handled by app/api/receipts_router.py
+# The receipts_router is included above with app.include_router(receipts_router)
+# and provides the same /api/orders/history and /api/orders/history/{receipt_id} routes
+
+# @app.get("/api/orders/history", summary="Get order history (closed sessions)")
+# async def get_order_history(...):
+#     ...
+
+# @app.get("/api/orders/history/{session_id}", summary="Get a specific receipt by session ID")
+# async def get_receipt(...):
+#     ...
+
+
 # ---------- Optional maintenance: purge endpoint ----------
 @app.post("/purge_done", summary="Permanently remove done/cancelled items (optional maintenance)")
 async def purge_done(older_than_seconds: int = 0, storage: Storage = Depends(get_storage)):
@@ -882,13 +1108,21 @@ async def station_ws(websocket: WebSocket, station: str):
                 async with lock:
                     # Confirm table exists
                     if not storage.table_exists(table_to_finalize):
+                        print(f"[finalize_table] Table {table_to_finalize} not found")
                         await websocket.send_json({"action": "finalize_failed", "table": table_to_finalize, "reason": "table_not_found"})
                         continue
 
                     # Check pending items for this table
-                    pending_left = [x for x in storage.get_orders(table_to_finalize) if x.get("status") == "pending"]
+                    all_items = storage.get_orders(table_to_finalize)
+                    print(f"[finalize_table] Table {table_to_finalize} has {len(all_items)} items total")
+                    for idx, item in enumerate(all_items):
+                        print(f"[finalize_table]   Item {idx}: id={item.get('id')}, status={item.get('status')}, text={item.get('text', '')[:50]}")
+                    pending_left = [x for x in all_items if x.get("status") == "pending"]
+                    print(f"[finalize_table] Table {table_to_finalize} has {len(pending_left)} pending items")
+                    
                     if pending_left:
                         # refuse finalize, include number of pending items
+                        print(f"[finalize_table] REJECTED - {len(pending_left)} pending items remain")
                         await websocket.send_json({"action": "finalize_failed", "table": table_to_finalize, "pending": len(pending_left), "reason": "items_pending"})
                         # also send an updated set of pending items back so waiter UI can refresh
                         pending_items = []
@@ -900,6 +1134,7 @@ async def station_ws(websocket: WebSocket, station: str):
                         continue
 
                     # No pending items -> perform finalization: broadcast deletes and remove table & meta
+                    print(f"[finalize_table] SUCCESS - Finalizing table {table_to_finalize}")
                     items_to_remove = list(storage.get_orders(table_to_finalize))
                     for it in items_to_remove:
                         # send delete to stations
@@ -915,11 +1150,13 @@ async def station_ws(websocket: WebSocket, station: str):
                         # notify waiters as well
                         asyncio.create_task(broadcast_to_station("waiter", msg))
 
-                    # remove the table from storage & meta
-                    storage.delete_table(table_to_finalize)
+                    # remove the table from storage & meta, get the receipt_id
+                    receipt_id = storage.delete_table(table_to_finalize)
+                    print(f"[finalize_table] Closed table and created receipt_id: {receipt_id}, type: {type(receipt_id)}")
 
                     # broadcast table_finalized to everyone so UIs remove any remaining traces
-                    tf_msg = {"action": "table_finalized", "table": table_to_finalize}
+                    tf_msg = {"action": "table_finalized", "table": table_to_finalize, "receipt_id": receipt_id}
+                    print(f"[finalize_table] Broadcasting table_finalized: {tf_msg}")
                     asyncio.create_task(broadcast_to_all(tf_msg))
 
                     # also broadcast meta reset for UI sync
@@ -979,10 +1216,14 @@ async def station_ws(websocket: WebSocket, station: str):
 
     except WebSocketDisconnect:
         # cleanup: remove websocket from list
+        print(f"[WebSocket] {station} disconnected normally")
         if websocket in station_connections.get(station, []):
             station_connections[station].remove(websocket)
-    except Exception:
+    except Exception as e:
         # on any other error clean up
+        print(f"[WebSocket] ERROR in {station} connection: {e}")
+        import traceback
+        traceback.print_exc()
         if websocket in station_connections.get(station, []):
             station_connections[station].remove(websocket)
         try:

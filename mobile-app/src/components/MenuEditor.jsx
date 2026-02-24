@@ -31,6 +31,7 @@ function MenuEditor({ initialMenu, onSave, onBack, loading }) {
       price: 0,
       category: 'kitchen',
       unit: 'portion',
+      hidden: false,
     };
     setMenu([...menu, newItem]);
     setEditingItem(newItem);
@@ -50,7 +51,7 @@ function MenuEditor({ initialMenu, onSave, onBack, loading }) {
 
       <div className="menu-list">
         {menu.map((item) => (
-          <div key={item.id} className="menu-item-card">
+          <div key={item.id} className={`menu-item-card ${item.hidden ? 'hidden-item' : ''}`}>
             {editingItem?.id === item.id ? (
               <div className="edit-form">
                 <input
@@ -83,17 +84,26 @@ function MenuEditor({ initialMenu, onSave, onBack, loading }) {
                   <option value="liter">Liter</option>
                   <option value="ml">Milliliter</option>
                 </select>
+                <label className="hidden-toggle">
+                  <input
+                    type="checkbox"
+                    checked={editingItem.hidden || false}
+                    onChange={(e) => setEditingItem({ ...editingItem, hidden: e.target.checked })}
+                  />
+                  Hidden (not available)
+                </label>
                 <div className="edit-actions">
                   <button onClick={handleSaveEdit} className="save-btn">✓ Save</button>
                   <button onClick={() => setEditingItem(null)} className="cancel-btn">✗ Cancel</button>
                 </div>
               </div>
             ) : (
-              <div className="item-display">
+              <div className={`item-display ${item.hidden ? 'hidden-display' : ''}`}>
                 <div className="item-info">
                   <h3>{item.name}</h3>
                   <p className="item-details">
                     {item.price}€ • {item.category} • {item.unit}
+                    {item.hidden && <span className="hidden-badge">🚫 Hidden</span>}
                   </p>
                 </div>
                 <div className="item-actions">

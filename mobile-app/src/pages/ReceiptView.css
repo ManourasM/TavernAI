@@ -1,0 +1,282 @@
+/* src/pages/ReceiptView.css */
+/* Styling for receipt view and print */
+
+.receipt-view-page {
+  min-height: 100vh;
+  background: #f0f0f0;
+  padding: 1rem;
+}
+
+.receipt-loading,
+.receipt-error {
+  text-align: center;
+  padding: 3rem;
+  font-size: 1.125rem;
+  color: #6c757d;
+}
+
+.receipt-error {
+  color: #dc3545;
+  background: #f8d7da;
+  border: 1px solid #f5c6cb;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+}
+
+.receipt-controls {
+  max-width: 800px;
+  margin: 0 auto 1rem;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+}
+
+.back-button,
+.print-button {
+  padding: 0.75rem 1.5rem;
+  border: none;
+  border-radius: 6px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.back-button {
+  background: #6c757d;
+  color: white;
+}
+
+.back-button:hover {
+  background: #5a6268;
+}
+
+.print-button {
+  background: #007bff;
+  color: white;
+}
+
+.print-button:hover {
+  background: #0056b3;
+}
+
+/* Receipt content */
+.receipt-content {
+  max-width: 800px;
+  margin: 0 auto;
+  background: white;
+  padding: 2rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+  font-family: 'Courier New', Courier, monospace;
+}
+
+.receipt-restaurant {
+  text-align: center;
+  margin-bottom: 1.5rem;
+  border-bottom: 2px solid #333;
+  padding-bottom: 1rem;
+}
+
+.receipt-restaurant h1 {
+  margin: 0 0 0.5rem;
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: 2px;
+}
+
+.restaurant-details {
+  margin: 0;
+  font-size: 0.875rem;
+  color: #555;
+  line-height: 1.6;
+}
+
+.receipt-info {
+  margin-bottom: 1rem;
+}
+
+.receipt-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.25rem 0;
+  font-size: 0.875rem;
+}
+
+.receipt-row .label {
+  font-weight: 600;
+  color: #333;
+}
+
+.receipt-row .value {
+  color: #555;
+}
+
+.receipt-divider {
+  border: none;
+  border-top: 1px dashed #999;
+  margin: 1rem 0;
+}
+
+/* Items table */
+.receipt-items-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1rem;
+  font-size: 0.875rem;
+}
+
+.receipt-items-table th {
+  text-align: left;
+  padding: 0.5rem 0.25rem;
+  border-bottom: 2px solid #333;
+  font-weight: 700;
+  color: #333;
+}
+
+.receipt-items-table td {
+  padding: 0.5rem 0.25rem;
+  border-bottom: 1px solid #ddd;
+  color: #555;
+}
+
+.item-name-col {
+  width: 50%;
+}
+
+.item-qty-col,
+.item-price-col,
+.item-total-col {
+  text-align: right;
+  width: 16.66%;
+}
+
+.item-name {
+  font-weight: 500;
+}
+
+.item-qty,
+.item-price,
+.item-total {
+  text-align: right;
+}
+
+/* Totals */
+.receipt-totals {
+  margin-top: 1rem;
+}
+
+.receipt-totals .receipt-row {
+  font-size: 1rem;
+  padding: 0.5rem 0;
+}
+
+.total-row {
+  border-top: 2px solid #333;
+  margin-top: 0.5rem;
+  padding-top: 0.75rem !important;
+  font-size: 1.25rem !important;
+  font-weight: 700;
+}
+
+.total-row .label,
+.total-row .value {
+  font-weight: 700;
+  color: #000;
+}
+
+/* Footer */
+.receipt-footer {
+  text-align: center;
+  margin-top: 2rem;
+  padding-top: 1rem;
+  border-top: 2px solid #333;
+}
+
+.receipt-footer p {
+  margin: 0.5rem 0;
+  font-size: 1rem;
+  color: #333;
+}
+
+.receipt-footer-small {
+  font-size: 0.75rem !important;
+  color: #999 !important;
+}
+
+/* Print styles */
+@media print {
+  .receipt-view-page {
+    background: white;
+    padding: 0;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .receipt-content {
+    box-shadow: none;
+    border-radius: 0;
+    max-width: 100%;
+    padding: 1rem;
+  }
+
+  .receipt-restaurant h1 {
+    font-size: 1.5rem;
+  }
+
+  .receipt-items-table {
+    font-size: 0.75rem;
+  }
+
+  .receipt-row {
+    font-size: 0.75rem;
+  }
+
+  .total-row {
+    font-size: 1rem !important;
+  }
+}
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+  .receipt-view-page {
+    padding: 0.5rem;
+  }
+
+  .receipt-content {
+    padding: 1rem;
+  }
+
+  .receipt-controls {
+    flex-direction: column;
+  }
+
+  .back-button,
+  .print-button {
+    width: 100%;
+  }
+
+  .receipt-restaurant h1 {
+    font-size: 1.5rem;
+  }
+
+  .receipt-items-table {
+    font-size: 0.75rem;
+  }
+
+  .receipt-items-table th,
+  .receipt-items-table td {
+    padding: 0.25rem;
+  }
+
+  .item-name-col {
+    width: 40%;
+  }
+
+  .item-qty-col,
+  .item-price-col,
+  .item-total-col {
+    width: 20%;
+  }
+}
