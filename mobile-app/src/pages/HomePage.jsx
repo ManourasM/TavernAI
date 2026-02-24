@@ -11,15 +11,33 @@ function HomePage() {
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
   const isAdmin = useAuthStore((state) => state.isAdmin);
-  const getAccessibleEndpoints = useAuthStore((state) => state.getAccessibleEndpoints);
   const endpoints = useMenuStore((state) => state.endpoints);
+  const workstations = useMenuStore((state) => state.workstations);
+  const loadWorkstations = useMenuStore((state) => state.loadWorkstations);
   const isMuted = useNotificationStore((state) => state.isMuted);
   const toggleMute = useNotificationStore((state) => state.toggleMute);
   
   const [activeTab, setActiveTab] = useState('waiter');
   const navigate = useNavigate();
 
-  const accessibleEndpoints = getAccessibleEndpoints();
+  useEffect(() => {
+    loadWorkstations();
+  }, [loadWorkstations]);
+
+  const stationSlugs = endpoints.map((ep) => ep.id);
+  const roleStations = (user?.roles || [])
+    .filter((role) => role.startsWith('station_'))
+    .map((role) => role.replace('station_', ''))
+    .filter((slug) => stationSlugs.includes(slug));
+
+  const accessibleStations = isAdmin()
+    ? stationSlugs
+    : roleStations;
+
+  const accessibleEndpoints = [
+    ...(isAdmin() || user?.roles?.includes('waiter') ? ['waiter'] : []),
+    ...accessibleStations,
+  ];
 
   useEffect(() => {
     // Set initial tab based on accessible endpoints
@@ -53,11 +71,14 @@ function HomePage() {
     if (!user) return '';
     
     const roles = user.roles || [];
-    if (roles.includes('admin')) return 'Admin';
-    if (roles.includes('waiter')) return 'Waiter';
-    if (roles.includes('kitchen')) return 'Kitchen';
-    if (roles.includes('grill')) return 'Grill';
-    if (roles.includes('drinks')) return 'Drinks';
+    if (roles.includes('admin')) return 'Διαχειριστής';
+    if (roles.includes('waiter')) return 'Σερβιτόρος';
+    const stationRole = roles.find((role) => role.startsWith('station_'));
+    if (stationRole) {
+      const slug = stationRole.replace('station_', '');
+      const ws = workstations.find((item) => item.slug === slug);
+      return ws?.name || slug;
+    }
     return '';
   };
 
@@ -106,7 +127,7 @@ function HomePage() {
         <div className="tab-navigation">
           {accessibleEndpoints.map((endpointId) => {
             const endpoint = endpoints.find((ep) => ep.id === endpointId);
-            if (!endpoint) return null;
+            if (endpointId !== 'waiter' && !endpoint) return null;
             
             return (
               <button
@@ -114,10 +135,10 @@ function HomePage() {
                 className={`tab ${activeTab === endpointId ? 'active' : ''}`}
                 onClick={() => setActiveTab(endpointId)}
                 style={{
-                  borderBottomColor: activeTab === endpointId ? endpoint.color : 'transparent'
+                  borderBottomColor: activeTab === endpointId ? (endpoint?.color || '#667eea') : 'transparent'
                 }}
               >
-                {endpoint.name}
+                {endpointId === 'waiter' ? 'Σερβιτόρος' : endpoint.name}
               </button>
             );
           })}
@@ -127,9 +148,13 @@ function HomePage() {
       {/* Tab Content */}
       <div className="tab-content">
         {activeTab === 'waiter' && <WaiterView />}
-        {activeTab === 'kitchen' && <StationView station="kitchen" />}
-        {activeTab === 'grill' && <StationView station="grill" />}
-        {activeTab === 'drinks' && <StationView station="drinks" />}
+        {activeTab !== 'waiter' && (
+          <StationView
+            station={activeTab}
+            stationName={endpoints.find((ep) => ep.id === activeTab)?.name}
+            stationColor={endpoints.find((ep) => ep.id === activeTab)?.color}
+          />
+        )}
       </div>
     </div>
   );

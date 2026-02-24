@@ -10,6 +10,7 @@ import os
 from sqlalchemy import create_engine, select, delete
 from sqlalchemy.orm import sessionmaker, Session
 from datetime import datetime, timedelta
+from app.utils.time_utils import now_athens_naive, to_athens_naive
 
 from app.storage.base import Storage
 from app.storage.models import Base, TableMetaModel, OrderModel
@@ -147,9 +148,9 @@ class SQLiteStorage(Storage):
                 if isinstance(created_at, str):
                     # Remove 'Z' suffix if present
                     created_at = created_at.rstrip("Z")
-                    created_at = datetime.fromisoformat(created_at)
+                    created_at = to_athens_naive(datetime.fromisoformat(created_at))
                 elif created_at is None:
-                    created_at = datetime.utcnow()
+                    created_at = now_athens_naive()
                 
                 # Create order model (unique constraint on item_id enforced by DB)
                 order_model = OrderModel(
@@ -243,7 +244,7 @@ class SQLiteStorage(Storage):
                     removed = result.rowcount
                 else:
                     # Remove only those created before cutoff time
-                    cutoff = datetime.utcnow() - timedelta(seconds=older_than_seconds)
+                    cutoff = now_athens_naive() - timedelta(seconds=older_than_seconds)
                     stmt = delete(OrderModel).where(
                         (OrderModel.table_id == table_id) &
                         (OrderModel.status.in_(["done", "cancelled"])) &

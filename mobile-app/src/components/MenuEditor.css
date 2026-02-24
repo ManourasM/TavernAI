@@ -172,3 +172,44 @@
   font-weight: bold;
 }
 
+/* Categories Loading & Warning */
+.categories-warning {
+  background-color: #fff3cd;
+  color: #856404;
+  border: 1px solid #ffeaa7;
+  padding: 12px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  margin: 0 0 10px 0;
+}
+
+/* Legacy Category Item Styling */
+.menu-item-card.legacy-category-item {
+  border-left: 4px solid #ff9800;
+  background: #fff8f0;
+}
+
+/* Legacy Category Warning */
+.legacy-warning {
+  background-color: #fff3cd;
+  color: #856404;
+  border: 1px solid #ffeaa7;
+  padding: 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  margin-bottom: 12px;
+  font-weight: 500;
+}
+
+/* Legacy Category Indicator */
+.legacy-category-indicator {
+  display: inline-block;
+  background-color: #ff9800;
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+

@@ -9,6 +9,7 @@ import tempfile
 import os
 from pathlib import Path
 from datetime import datetime, timedelta
+from app.utils.time_utils import now_athens_naive
 
 from app.storage.sqlite import SQLiteStorage
 from app.storage.inmemory import InMemoryStorage
@@ -405,7 +406,7 @@ class TestSQLiteInterfaceCompliance:
                 status="done",
                 menu_id="m1",
                 name="Menu",
-                created_at=datetime.utcnow() - timedelta(hours=2),
+                created_at=now_athens_naive() - timedelta(hours=2),
             )
             session.add(old_order)
             session.commit()

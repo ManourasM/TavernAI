@@ -10,12 +10,6 @@ import {
 import useMenuStore from '../../store/menuStore';
 import './MenuEditor.css';
 
-const CATEGORY_OPTIONS = [
-  { value: 'kitchen', label: 'Κουζινα' },
-  { value: 'grill', label: 'Ψησταρια' },
-  { value: 'drinks', label: 'Ποτα' },
-];
-
 const emptyItem = {
   id: '',
   name: '',
@@ -38,9 +32,22 @@ function normalizePrice(value) {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
+/**
+ * Remove metadata fields (like available_categories) from menu before saving.
+ * API adds these for display, but they shouldn't be saved back.
+ */
+function cleanMenuForSave(menu) {
+  const clean = JSON.parse(JSON.stringify(menu || {}));
+  // Remove non-menu fields that API adds
+  delete clean.available_categories;
+  return clean;
+}
+
 function MenuEditor() {
   const navigate = useNavigate();
   const refreshMenu = useMenuStore((state) => state.refreshMenu);
+  const workstations = useMenuStore((state) => state.workstations);
+  const loadWorkstations = useMenuStore((state) => state.loadWorkstations);
   const [versions, setVersions] = useState([]);
   const [selectedVersionId, setSelectedVersionId] = useState(null);
   const [menuData, setMenuData] = useState(null);
@@ -59,6 +66,29 @@ function MenuEditor() {
 
   const latestVersionId = versions.length > 0 ? versions[0].id : null;
   const isReadOnly = latestVersionId !== null && selectedVersionId !== latestVersionId;
+
+  // Build dynamic category options from workstations
+  const categoryOptions = useMemo(() => {
+    if (!workstations || workstations.length === 0) {
+      // Fallback to defaults if workstations not loaded
+      return [
+        { value: 'kitchen', label: 'Κουζινα', active: true },
+        { value: 'grill', label: 'Ψησταρια', active: true },
+        { value: 'drinks', label: 'Ποτα', active: true },
+      ];
+    }
+    return workstations
+      .filter((ws) => ws.slug && ws.slug !== 'waiter')
+      .map((ws) => ({
+        value: ws.slug,
+        label: ws.active ? ws.name || ws.slug : `${ws.name || ws.slug} (Inactive)`,
+        active: ws.active !== false,
+      }));
+  }, [workstations]);
+
+  useEffect(() => {
+    loadWorkstations();
+  }, [loadWorkstations]);
 
   useEffect(() => {
     loadVersionsAndMenu();
@@ -169,7 +199,7 @@ function MenuEditor() {
       };
       const nextDraft = buildDraftWithItem(menuDraft, sectionName, updatedItem);
       setMenuDraft(nextDraft);
-      await createMenuVersion(nextDraft);
+      await createMenuVersion(cleanMenuForSave(nextDraft));
       await refreshAfterSave();
     } catch (err) {
       console.error('[MenuEditor] Toggle hidden error:', err);
@@ -186,7 +216,7 @@ function MenuEditor() {
     try {
       const nextDraft = buildDraftWithItem(menuDraft, sectionName, updatedItem);
       setMenuDraft(nextDraft);
-      await createMenuVersion(nextDraft);
+      await createMenuVersion(cleanMenuForSave(nextDraft));
       await refreshAfterSave();
       setModalOpen(false);
     } catch (err) {
@@ -222,7 +252,7 @@ function MenuEditor() {
     try {
       const nextDraft = buildDraftWithoutItem(menuDraft, itemId);
       setMenuDraft(nextDraft);
-      await createMenuVersion(nextDraft);
+      await createMenuVersion(cleanMenuForSave(nextDraft));
       await refreshAfterSave();
     } catch (err) {
       console.error('[MenuEditor] Permanent delete error:', err);
@@ -272,7 +302,7 @@ function MenuEditor() {
       draft[sectionName].push(newItem);
       setMenuDraft(draft);
 
-      await createMenuVersion(draft);
+      await createMenuVersion(cleanMenuForSave(draft));
       await refreshAfterSave();
 
       setAddSection('');
@@ -371,7 +401,7 @@ function MenuEditor() {
                 onChange={(e) => setAddCategory(e.target.value)}
                 disabled={isReadOnly || saving}
               >
-                {CATEGORY_OPTIONS.map((option) => (
+                {categoryOptions.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
                   </option>
@@ -415,6 +445,7 @@ function MenuEditor() {
           onSave={handleSaveItem}
           saving={saving}
           readOnly={isReadOnly}
+          categoryOptions={categoryOptions}
         />
       )}
     </div>
@@ -502,7 +533,7 @@ function MenuSection({ sectionName, items, onEdit, onToggleHidden, onPermanentDe
   );
 }
 
-function ItemEditorModal({ item, section, onSave, onClose, saving, readOnly }) {
+function ItemEditorModal({ item, section, onSave, onClose, saving, readOnly, categoryOptions }) {
   const [name, setName] = useState(item?.name || '');
   const [price, setPrice] = useState(String(item?.price ?? ''));
   const [category, setCategory] = useState(item?.category || 'kitchen');
@@ -565,7 +596,7 @@ function ItemEditorModal({ item, section, onSave, onClose, saving, readOnly }) {
             onChange={(e) => setCategory(e.target.value)}
             disabled={readOnly || saving}
           >
-            {CATEGORY_OPTIONS.map((option) => (
+            {categoryOptions.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>

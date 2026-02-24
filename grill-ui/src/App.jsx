@@ -56,28 +56,31 @@ export default function App() {
     });
   }
 
+  const syncState = async () => {
+    const resp = await getOrders();
+    if (!resp || typeof resp !== "object") return;
+    const next = {};
+    Object.keys(resp).forEach(table => {
+      const arr = Array.isArray(resp[table]) ? resp[table] : [];
+      const filtered = arr.filter(it => itemForThisStation(it));
+      if (filtered.length > 0) {
+        next[String(table)] = { table: parseInt(table, 10), items: filtered.slice(), meta: (filtered[0] && filtered[0].meta) || { people: null, bread: false } };
+        next[String(table)].items.sort((a,b) => (a.created_at || "").localeCompare(b.created_at || ""));
+      }
+    });
+    setOrdersMap(next);
+  };
+
   // initial load
   useEffect(() => {
-    getOrders().then(resp => {
-      if (!resp || typeof resp !== "object") return;
-      setOrdersMap(prev => {
-        const copy = { ...prev };
-        Object.keys(resp).forEach(table => {
-          const arr = Array.isArray(resp[table]) ? resp[table] : [];
-          const filtered = arr.filter(it => itemForThisStation(it));
-          if (filtered.length > 0) {
-            copy[String(table)] = { table: parseInt(table, 10), items: filtered.slice(), meta: (filtered[0] && filtered[0].meta) || { people: null, bread: false } };
-            copy[String(table)].items.sort((a,b) => (a.created_at || "").localeCompare(b.created_at || ""));
-          }
-        });
-        return copy;
-      });
-    }).catch(err => console.warn("getOrders failed", err));
+    syncState().catch(err => console.warn("getOrders failed", err));
   }, []);
 
   // websocket handler
   useEffect(() => {
-    const ws = createWS(station, (msg) => {
+    const ws = createWS(
+      station,
+      (msg) => {
       try {
         if (!msg || !msg.action) return;
 
@@ -140,7 +143,14 @@ export default function App() {
       } catch (e) {
         console.warn("WS handler error", e, msg);
       }
-    });
+      },
+      null,
+      {
+        onSync: async () => {
+          await syncState();
+        }
+      }
+    );
     return () => { try { ws.close(); } catch (e) {} };
   }, [station, playNewOrderSound]);
 

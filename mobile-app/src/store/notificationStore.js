@@ -74,7 +74,7 @@ const useNotificationStore = create(
             id: Date.now(),
             title,
             body,
-            timestamp: new Date().toISOString(),
+            timestamp: new Date().toLocaleString('el-GR', { timeZone: 'Europe/Athens' }),
             read: false,
           };
 

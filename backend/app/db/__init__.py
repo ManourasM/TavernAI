@@ -58,9 +58,9 @@ def init_db(engine: Engine, use_alembic: bool = True, base: Optional[Any] = None
         print(f"[init_db] Creating missing tables from {base.__name__} schema (preserving existing data)...")
         try:
             base.metadata.create_all(engine)
-            print(f"[init_db] ✅ Schema synchronized successfully (no data was dropped)")
+            print(f"[init_db] [OK] Schema synchronized successfully (no data was dropped)")
         except Exception as e:
-            print(f"[init_db] ⚠️ Error creating tables: {e}")
+            print(f"[init_db] [WARNING] Error creating tables: {e}")
             raise RuntimeError(f"Failed to create database tables: {e}")
 
 

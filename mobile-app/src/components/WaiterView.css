@@ -433,7 +433,10 @@
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
   max-width: 500px;
   width: 90%;
+  max-height: 90vh;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .waiter-modal-header {
@@ -451,6 +454,7 @@
 .waiter-modal-content {
   padding: 24px;
   color: #333;
+  overflow-y: auto;
 }
 
 .waiter-modal-content p {

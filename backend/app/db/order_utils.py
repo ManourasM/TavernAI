@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select
 
 from app.db.models import TableSession, Order, OrderItem, MenuItem
+from app.utils.time_utils import iso_athens, now_athens_naive, to_athens
 
 
 def get_or_create_table_session(
@@ -142,7 +143,7 @@ def create_order_from_payload(
             "menu_id": entry.get("menu_id"),
             "category": entry.get("category", "kitchen"),
             "status": "pending",
-            "created_at": datetime.utcnow().isoformat() + "Z",
+            "created_at": iso_athens(),
             "_db_order_item_id": order_item.id  # Internal reference
         }
         created_items.append(item_dict)
@@ -212,7 +213,7 @@ def list_orders_for_table(
                 "menu_id": item.menu_item.external_id if item.menu_item else None,
                 "category": item.category or _infer_category_from_item(item),  # Use stored category first
                 "status": item.status,
-                "created_at": order.created_at.isoformat() + "Z" if order.created_at else None,
+                "created_at": to_athens(order.created_at).isoformat() if order.created_at else None,
                 "_db_order_item_id": item.id  # Internal reference
             }
             result.append(item_dict)
@@ -446,7 +447,7 @@ def purge_done_items(
         )
         
         if older_than_seconds > 0:
-            cutoff = datetime.utcnow() - timedelta(seconds=older_than_seconds)
+            cutoff = now_athens_naive() - timedelta(seconds=older_than_seconds)
             items_stmt = items_stmt.where(Order.created_at < cutoff)
         
         items = session.execute(items_stmt).scalars().all()

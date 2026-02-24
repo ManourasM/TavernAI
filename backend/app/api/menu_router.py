@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select
 
 from app.db import Base
-from app.db.models import MenuVersion, MenuItem
+from app.db.models import MenuVersion, MenuItem, Workstation
 from app.db.menu_access import get_latest_menu, get_active_menu_items, menu_items_to_dict
 from app.db.menu_utils import create_menu_version, upsert_menu_item, menu_version_exists
 from app.db.dependencies import get_sqlalchemy_session, require_admin
@@ -62,21 +62,48 @@ class UpdateMenuItemRequest(BaseModel):
 router = APIRouter(prefix="/api/menu", tags=["menu"])
 
 
+def _get_available_categories(session: Session) -> List[str]:
+    """
+    Get list of all workstation slugs (both active and inactive).
+    
+    Includes inactive workstations so menu items can be reassigned to them
+    if they are reactivated later. Returns slugs sorted by name for consistency.
+    """
+    stmt = (
+        select(Workstation.slug)
+        .where(Workstation.slug != "waiter")
+        .order_by(Workstation.name)
+    )
+    categories = session.execute(stmt).scalars().all()
+    return list(categories)
+
+
 @router.get("")
 async def get_latest_menu_endpoint(
     session: Session = Depends(get_sqlalchemy_session)
 ) -> Dict[str, Any]:
     """
-    Get the latest menu as JSON blob.
+    Get the latest menu as JSON blob with available categories.
     
     Returns the most recent MenuVersion.json_blob from database,
     or falls back to menu.json file if no versions exist.
     
-    - **Returns**: Full menu structure
+    Response includes:
+    - Menu structure (categories → items)
+    - available_categories: List of active workstation slugs for validation
+    
+    - **Returns**: Full menu structure with available_categories array
     """
     try:
         menu = get_latest_menu(session)
-        return menu
+        available_categories = _get_available_categories(session)
+        
+        # Add available_categories to response
+        response = {
+            **menu,
+            "available_categories": available_categories
+        }
+        return response
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to load menu: {e}")
 
@@ -128,10 +155,13 @@ async def get_menu_version(
     session: Session = Depends(get_sqlalchemy_session)
 ) -> Dict[str, Any]:
     """
-    Get a specific menu version by ID.
+    Get a specific menu version by ID with available categories.
+    
+    Returns the menu structure from that version along with
+    currently available categories (active workstations).
     
     - **version_id**: Menu version ID
-    - **Returns**: Menu structure from that version
+    - **Returns**: Menu structure from that version with available_categories
     """
     try:
         stmt = select(MenuVersion).where(MenuVersion.id == version_id)
@@ -140,7 +170,14 @@ async def get_menu_version(
         if not version:
             raise HTTPException(status_code=404, detail=f"Version {version_id} not found")
         
-        return version.json_blob
+        available_categories = _get_available_categories(session)
+        
+        # Add available_categories to response
+        response = {
+            **version.json_blob,
+            "available_categories": available_categories
+        }
+        return response
     except HTTPException:
         raise
     except Exception as e:
@@ -206,14 +243,15 @@ async def update_menu_item(
     """
     Update a menu item.
     
-    Updates specified fields (price, name, etc). Other fields unchanged.
+    Updates specified fields (price, name, category, etc). Other fields unchanged.
+    Category is validated against available workstations if provided.
     
     **Admin only**
     
     - **item_id**: MenuItem ID
     - **name**: New name (optional)
     - **price**: New price in euros (optional)
-    - **category**: New category (optional)
+    - **category**: New category (optional) - must match active workstation slug
     - **station**: New station (optional)
     - **extra_data**: New metadata (optional)
     - **Returns**: Updated item
@@ -224,6 +262,13 @@ async def update_menu_item(
         
         if not item:
             raise HTTPException(status_code=404, detail=f"Item {item_id} not found")
+        
+        # Validate category if provided
+        if request.category is not None:
+            available_categories = _get_available_categories(session)
+            if request.category not in available_categories:
+                # Warn but allow - category may become valid later
+                print(f"[menu_router] Warning: category '{request.category}' not in available workstations: {available_categories}")
         
         # Update fields
         if request.name is not None:

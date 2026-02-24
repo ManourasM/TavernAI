@@ -1,19 +1,17 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { getMenu, clearMenuCache } from '../services/menuService';
+import { listWorkstations } from '../services/workstationsService';
 
 const useMenuStore = create(
   persist(
     (set, get) => ({
       menu: null,
-      endpoints: [
-        { id: 'waiter', name: 'Σερβιτόρος', color: '#9C27B0' },
-        { id: 'kitchen', name: 'Κουζίνα', color: '#4CAF50' },
-        { id: 'grill', name: 'Ψησταριά', color: '#FF5722' },
-        { id: 'drinks', name: 'Ποτά', color: '#2196F3' },
-      ],
+      workstations: [],
+      endpoints: [],
       isMenuSetup: false,
       menuLoadError: null,
+      workstationsLoadError: null,
 
       // Load menu from backend API with fallback to public/menu.json
       loadMenu: async (options = {}) => {
@@ -21,12 +19,16 @@ const useMenuStore = create(
           const result = await getMenu(options);
           
           if (result.success) {
-            set({ menu: result.menu, isMenuSetup: true, menuLoadError: null });
+            // Remove API metadata fields before storing
+            const cleanMenu = JSON.parse(JSON.stringify(result.menu || {}));
+            delete cleanMenu.available_categories;
+            
+            set({ menu: cleanMenu, isMenuSetup: true, menuLoadError: null });
             console.log(`[menuStore] Loaded menu from ${result.source}`);
             if (result.apiError) {
               console.warn(`[menuStore] API error (using fallback): ${result.apiError}`);
             }
-            return { success: true, menu: result.menu, source: result.source };
+            return { success: true, menu: cleanMenu, source: result.source };
           } else {
             set({ menu: null, isMenuSetup: false, menuLoadError: result.error });
             console.error('[menuStore] Failed to load menu:', result.error);
@@ -36,6 +38,33 @@ const useMenuStore = create(
           const errorMsg = error?.message || 'Unknown error loading menu';
           set({ menu: null, isMenuSetup: false, menuLoadError: errorMsg });
           console.error('[menuStore] Menu load error:', error);
+          return { success: false, error: errorMsg };
+        }
+      },
+
+      // Load all workstations from backend (active and inactive)
+      loadWorkstations: async () => {
+        try {
+          const data = await listWorkstations();
+          // Store all workstations (both active and inactive) for admin/editing purposes
+          const allWorkstations = data || [];
+          // Filter only active stations for endpoint/routing purposes
+          const activeWorkstations = allWorkstations.filter((ws) => ws.active !== false);
+          const stationsOnly = activeWorkstations.filter((ws) => ws.slug !== 'waiter');
+          set({
+            workstations: allWorkstations,
+            endpoints: stationsOnly.map((ws) => ({
+              id: ws.slug,
+              name: ws.name,
+              color: ws.color || '#667eea',
+            })),
+            workstationsLoadError: null,
+          });
+          return { success: true, workstations: allWorkstations };
+        } catch (error) {
+          const errorMsg = error?.message || 'Unknown error loading workstations';
+          set({ workstations: [], endpoints: [], workstationsLoadError: errorMsg });
+          console.error('[menuStore] Workstations load error:', error);
           return { success: false, error: errorMsg };
         }
       },

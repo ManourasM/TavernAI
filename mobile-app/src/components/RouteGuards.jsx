@@ -41,15 +41,11 @@ export function StationRoute({ station, children }) {
   }
 
   // Check if user has the specific station role
-  const stationRoleMap = {
-    kitchen: ROLES.KITCHEN,
-    grill: ROLES.GRILL,
-    drinks: ROLES.DRINKS,
-    waiter: ROLES.WAITER,
-  };
+  const requiredRole = station === 'waiter'
+    ? ROLES.WAITER
+    : `${ROLES.STATION_PREFIX}${station}`;
 
-  const requiredRole = stationRoleMap[station];
-  if (!requiredRole || !hasRole(requiredRole)) {
+  if (!hasRole(requiredRole)) {
     return <Navigate to="/login" replace />;
   }
 

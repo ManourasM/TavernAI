@@ -8,6 +8,7 @@ Maps to SQLite (or other SQL databases) via SQLAlchemy 2.0.
 from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Index, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime
+from app.utils.time_utils import now_athens_naive, to_athens
 
 Base = declarative_base()
 
@@ -52,7 +53,7 @@ class OrderModel(Base):
     menu_id = Column(String, nullable=True)  # Menu item ID
     category = Column(String, nullable=False)  # kitchen / grill / drinks
     status = Column(String, default="pending")  # pending / done / cancelled
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=now_athens_naive, nullable=False)
     
     # Composite index for common queries
     __table_args__ = (
@@ -76,5 +77,5 @@ class OrderModel(Base):
             "menu_id": self.menu_id,
             "category": self.category,
             "status": self.status,
-            "created_at": self.created_at.isoformat() + "Z" if self.created_at else None,
+            "created_at": to_athens(self.created_at).isoformat() if self.created_at else None,
         }

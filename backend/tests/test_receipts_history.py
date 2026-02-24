@@ -8,6 +8,7 @@ import pytest
 import pytest_asyncio
 import json
 from datetime import datetime, timedelta
+from app.utils.time_utils import now_athens_naive
 
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
@@ -413,7 +414,7 @@ async def test_get_history_filter_by_date(receipts_client, receipts_db_session):
 async def test_get_history_empty_result(receipts_client):
     """Test history with no matching results."""
     # Query for future date
-    future_date = (datetime.utcnow() + timedelta(days=365)).isoformat()
+    future_date = (now_athens_naive() + timedelta(days=365)).isoformat()
     
     response = await receipts_client.get(
         f"/api/orders/history?from_date={future_date}"

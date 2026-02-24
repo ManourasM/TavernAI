@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.db.models import NLPTrainingSample
+from app.utils.time_utils import now_athens_naive, to_athens
 from app.db.menu_access import get_latest_menu
 from app.nlp import _normalize_text_basic, _normalize_rule_key
 from app.db.dependencies import require_admin
@@ -90,7 +91,7 @@ def _sample_to_response(sample: NLPTrainingSample) -> SampleResponse:
         predicted_item_id=sample.predicted_menu_item_id,
         corrected_item_id=sample.corrected_menu_item_id,
         user_id=sample.corrected_by_user_id,
-        created_at=sample.created_at.isoformat()
+        created_at=to_athens(sample.created_at).isoformat()
     )
 
 
@@ -138,7 +139,7 @@ async def capture_sample(
             predicted_menu_item_id=request.predicted_item_id,
             corrected_menu_item_id=request.corrected_item_id,
             corrected_by_user_id=request.user_id,
-            created_at=datetime.utcnow()
+            created_at=now_athens_naive()
         )
         session.add(sample)
         session.commit()
@@ -271,7 +272,7 @@ async def export_samples(
                 s.predicted_menu_item_id,
                 s.corrected_menu_item_id,
                 s.corrected_by_user_id,
-                s.created_at.isoformat()
+                to_athens(s.created_at).isoformat()
             ])
 
         csv_content = output.getvalue()
@@ -323,7 +324,7 @@ async def list_rules(
                     raw_text=s.raw_text,
                     corrected_item_id=corrected_id,
                     corrected_item_name=corrected_item.get("name") if corrected_item else None,
-                    created_at=s.created_at.isoformat()
+                    created_at=to_athens(s.created_at).isoformat()
                 )
             )
 
@@ -371,7 +372,7 @@ async def update_rule(
             raw_text=sample.raw_text,
             corrected_item_id=corrected_id,
             corrected_item_name=corrected_item.get("name") if corrected_item else None,
-            created_at=sample.created_at.isoformat()
+            created_at=to_athens(sample.created_at).isoformat()
         )
     finally:
         session.close()

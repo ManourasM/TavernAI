@@ -81,7 +81,7 @@ function NLPReview() {
         <button onClick={() => navigate('/admin')} className="back-button">
           ← Επιστροφή
         </button>
-        <h1>🧠 Κανόνες NLP</h1>
+        <h1>🧠 Κανόνες</h1>
         <button onClick={loadRules} className="refresh-button" disabled={loading}>
           ↻ Ανανέωση
         </button>
@@ -160,7 +160,7 @@ function RuleRow({ rule, menuItems, saving, onSave, onDelete }) {
           ))}
         </select>
       </td>
-      <td>{new Date(rule.created_at).toLocaleString('el-GR')}</td>
+      <td>{new Date(rule.created_at).toLocaleString('el-GR', { timeZone: 'Europe/Athens' })}</td>
       <td className="rule-actions">
         <button
           className="btn-save"

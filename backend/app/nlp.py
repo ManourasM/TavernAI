@@ -143,8 +143,20 @@ BASE_DRINK_SET = set(DRINK_SET)
 MENU_ITEMS = {}
 
 # Helper for category normalization
+def _normalize_category_slug(cat_raw: str) -> str:
+    """Normalize a category/station slug from menu data."""
+    if not cat_raw:
+        return ""
+    slug = str(cat_raw).strip().lower()
+    slug = re.sub(r"\s+", "_", slug)
+    return slug
+
+
 def _categorize_raw(cat_raw):
-    """Return one of 'grill', 'drinks', 'kitchen', or None based on a raw category string."""
+    """
+    Return one of 'grill', 'drinks', 'kitchen', or None based on a raw category string.
+    Use only as a fallback when menu items have no explicit category.
+    """
     if not cat_raw:
         return None
     s = _normalize_text_basic(str(cat_raw))
@@ -212,7 +224,7 @@ def refresh_menu_items(menu_dict):
 
             cat_guess = None
             if entry_cat:
-                cat_guess = _categorize_raw(entry_cat)
+                cat_guess = _normalize_category_slug(entry_cat)
             if not cat_guess:
                 cat_guess = _categorize_raw(top_cat)
 
@@ -255,11 +267,12 @@ def build_override_rules(samples, menu_dict):
                 item_id = entry.get("id")
                 if not item_id:
                     continue
+                raw_cat = entry.get("category") or entry.get("station")
                 menu_index[str(item_id)] = {
                     "id": str(item_id),
                     "name": entry.get("name") or entry.get("title") or "",
                     "price": entry.get("price"),
-                    "category": entry.get("category") or entry.get("station") or top_cat
+                    "category": (_normalize_category_slug(raw_cat) if raw_cat else _categorize_raw(top_cat))
                 }
 
     for sample in samples:
@@ -315,7 +328,7 @@ try:
                         # Decide category decision: prefer explicit mapping (if it maps clearly)
                         cat_guess = None
                         if entry_cat:
-                            cat_guess = _categorize_raw(entry_cat)
+                            cat_guess = _normalize_category_slug(entry_cat)
                         if not cat_guess:
                             # fallback: try to detect from top_cat name
                             cat_guess = _categorize_raw(top_cat)
@@ -359,11 +372,11 @@ try:
                         "id": entry_id,
                         "name": name,
                         "price": entry_price,
-                        "category": (str(cat).lower() if cat else None)
+                        "category": (_normalize_category_slug(cat) if cat else None)
                     }
 
                     if cat:
-                        cat_l = str(cat).lower()
+                        cat_l = _normalize_category_slug(cat)
                         if cat_l == "grill":
                             GRILL_SET.add(nn)
                         elif cat_l in ("drinks", "drink"):
@@ -386,13 +399,13 @@ try:
                                     break
                         if not placed:
                             KITCHEN_SET.add(nn)
-            print(f"✓ Loaded {len(MENU_ITEMS)} menu items from menu.json")
+            print(f"[OK] Loaded {len(MENU_ITEMS)} menu items from menu.json")
         except Exception as e:
             # ignore malformed menu.json (do not crash the service)
-            print(f"✗ Error loading menu.json: {e}")
+            print(f"[ERROR] Error loading menu.json: {e}")
             pass
 except Exception as e:
-    print(f"✗ No menu.json found at {menu_path}, using empty menu")
+    print(f"[ERROR] No menu.json found at {menu_path}, using empty menu")
     pass
 
 # Helper: check if any normalized stem appears in text (substring) or vice versa
@@ -546,7 +559,7 @@ def _find_menu_match_with_units(item_text: str, unit: str, quantity: float) -> d
         "menu_id": str or None,
         "menu_name": str or None,
         "price": float or None,
-        "category": str or None,  # "grill"|"kitchen"|"drinks"
+        "category": str or None,  # station slug
         "multiplier": float (for calculating total price)
     }
     """
@@ -680,7 +693,7 @@ def classify_order(order_text: str, override_rules: Dict[str, Dict] = None) -> L
     Input: multi-line Greek order text (one dish per line)
     Output: list of {
         "text": original_user_text,  # Preserved as user wrote it
-        "category": "grill"|"kitchen"|"drinks",
+        "category": "<station_slug>",
         "menu_id": str or None,  # Matched menu item ID
         "menu_name": str or None,  # Matched menu item name (for pricing display)
         "price": float or None,  # Unit price from menu

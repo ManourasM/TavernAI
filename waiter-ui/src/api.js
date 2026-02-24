@@ -246,12 +246,16 @@ export async function markDone(itemId) {
    - onOpen/onMessage handlers
    ---------------------------*/
 
-export function createWS(station, onMessage, onOpen) {
+export function createWS(station, onMessage, onOpen, options = {}) {
   let ws = null;
   let closedByUser = false;
   let isConnecting = false;
   const outgoingQueue = []; // buffered messages while not connected
   let reconnectTimer = null;
+  let hasConnectedOnce = false;
+
+  const onSync = typeof options.onSync === "function" ? options.onSync : null;
+  const onCorrelation = typeof options.onCorrelation === "function" ? options.onCorrelation : null;
 
   async function resolveWsUrl() {
     try {
@@ -297,6 +301,13 @@ export function createWS(station, onMessage, onOpen) {
       console.debug("[WS] open", station, ev);
       isConnecting = false;
       if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+      if (onSync) {
+        const isReconnect = hasConnectedOnce;
+        Promise.resolve(onSync({ station, isReconnect })).catch((e) => {
+          console.error("[WS] onSync failed", e);
+        });
+      }
+      hasConnectedOnce = true;
       try { if (onOpen) onOpen(ev); } catch (e) { console.error("[WS] onOpen handler error", e); }
       flushQueue();
     };
@@ -308,6 +319,9 @@ export function createWS(station, onMessage, onOpen) {
       } catch (e) {
         console.warn("[WS] Failed to parse message", e, evt.data);
         return;
+      }
+      if (parsed && parsed.client_correlation_id && onCorrelation) {
+        try { onCorrelation(parsed); } catch (e) { console.error("[WS] onCorrelation error", e); }
       }
       try { if (onMessage) onMessage(parsed); } catch (e) { console.error("[WS] onMessage handler error", e, parsed); }
     };

@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db.models import TableSession, Order, OrderItem, Receipt
+from app.utils.time_utils import now_athens_naive, to_athens
 from app.storage import Storage, SQLAlchemyStorage
 
 
@@ -169,7 +170,7 @@ async def close_table_session(
             )
         
         # Set closed_at timestamp
-        table_session.closed_at = datetime.utcnow()
+        table_session.closed_at = now_athens_naive()
         
         # Get all orders for this session
         orders = (
@@ -306,16 +307,30 @@ async def get_order_history(
         # Build response items
         items = []
         for table_session, receipt, order in results:
-            # Calculate total from order
-            total_cents = order.total if order.total else 0
-            
-            # Parse items from content JSON
+            # Parse items and totals from receipt content JSON (session-level total)
+            content_data = {}
+            receipt_items = []
+            receipt_total = None
             try:
                 import json
                 content_data = json.loads(receipt.content)
                 receipt_items = content_data.get('items', [])
+                receipt_total = content_data.get('total')
             except (json.JSONDecodeError, AttributeError):
                 receipt_items = []
+                receipt_total = None
+
+            if isinstance(receipt_total, (int, float)):
+                total_eur = float(receipt_total)
+            else:
+                # Fallback to items sum, then order total
+                items_sum = 0.0
+                for item in receipt_items:
+                    try:
+                        items_sum += float(item.get('line_total') or 0)
+                    except (TypeError, ValueError):
+                        continue
+                total_eur = items_sum if items_sum > 0 else (float(order.total) / 100.0 if order.total else 0.0)
             
             # Convert table_label to int if possible
             try:
@@ -329,7 +344,7 @@ async def get_order_history(
                 table=table_value,  # Changed from table_label to table
                 created_at=table_session.opened_at.isoformat(),  # Alias for opened_at
                 closed_at=table_session.closed_at.isoformat(),
-                total=total_cents / 100.0,
+                total=total_eur,
                 printed=receipt.printed_at is not None,
                 items=receipt_items  # Added items for frontend
             ))
@@ -398,10 +413,10 @@ async def get_receipt_detail(
             id=receipt.id,
             order_id=order.id,
             table=table_value,  # Changed from table_label to table
-            opened_at=table_session.opened_at.isoformat(),
-            created_at=table_session.opened_at.isoformat(),  # Alias for opened_at
-            closed_at=table_session.closed_at.isoformat() if table_session.closed_at else None,
-            printed_at=receipt.printed_at.isoformat() if receipt.printed_at else None,
+            opened_at=to_athens(table_session.opened_at).isoformat(),
+            created_at=to_athens(table_session.opened_at).isoformat(),  # Alias for opened_at
+            closed_at=to_athens(table_session.closed_at).isoformat() if table_session.closed_at else None,
+            printed_at=to_athens(receipt.printed_at).isoformat() if receipt.printed_at else None,
             content=receipt.content,
             total=total_cents / 100.0,
             items=items  # Added parsed items
@@ -444,13 +459,13 @@ async def finalize_print_receipt(
             )
         
         # Set printed_at timestamp
-        receipt.printed_at = datetime.utcnow()
+        receipt.printed_at = now_athens_naive()
         session.commit()
         
         return {
             "status": "ok",
             "receipt_id": receipt.id,
-            "printed_at": receipt.printed_at.isoformat()
+            "printed_at": to_athens(receipt.printed_at).isoformat()
         }
         
     except HTTPException:

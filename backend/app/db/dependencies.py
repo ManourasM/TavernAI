@@ -2,6 +2,7 @@
 
 import os
 from datetime import datetime, timedelta
+from app.utils.time_utils import now_athens
 from typing import Optional, Any
 from fastapi import Request, HTTPException, Depends
 from fastapi.security import OAuth2PasswordBearer
@@ -87,7 +88,11 @@ SECRET_KEY = os.getenv("JWT_SECRET_KEY", "dev-secret-key")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "480"))
 
-pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
+pwd_context = CryptContext(
+    schemes=["pbkdf2_sha256"],  # Use pbkdf2_sha256 - bcrypt has compatibility issues
+    deprecated="auto",
+    bcrypt__rounds=12
+)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 
@@ -104,7 +109,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """Create a JWT access token."""
     to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    expire = now_athens() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 

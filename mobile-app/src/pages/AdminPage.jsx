@@ -1,15 +1,18 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import useAuthStore, { ROLES } from '../store/authStore';
+import useAuthStore from '../store/authStore';
 import useMenuStore from '../store/menuStore';
+import Users from './Admin/Users';
+import {
+  listWorkstations,
+  createWorkstation,
+  updateWorkstation,
+  deleteWorkstation,
+} from '../services/workstationsService';
 import './AdminPage.css';
 
 function AdminPage() {
-  const user = useAuthStore((state) => state.user);
   const isAdmin = useAuthStore((state) => state.isAdmin);
-  const users = useAuthStore((state) => state.users);
-  const addUser = useAuthStore((state) => state.addUser);
-  const deleteUser = useAuthStore((state) => state.deleteUser);
   
   const endpoints = useMenuStore((state) => state.endpoints);
   const addEndpoint = useMenuStore((state) => state.addEndpoint);
@@ -49,6 +52,12 @@ function AdminPage() {
           👥 Χρήστες
         </button>
         <button
+          className={activeSection === 'workstations' ? 'active' : ''}
+          onClick={() => setActiveSection('workstations')}
+        >
+          🏪 Διαχείριση Σημείων
+        </button>
+        <button
           className={activeSection === 'menu-editor' ? 'active' : ''}
           onClick={() => navigate('/admin/menu')}
         >
@@ -61,12 +70,6 @@ function AdminPage() {
           🧠 Κανόνες
         </button>
         <button
-          className={activeSection === 'endpoints' ? 'active' : ''}
-          onClick={() => setActiveSection('endpoints')}
-        >
-          📍 Σημεία Εξυπηρέτησης
-        </button>
-        <button
           className={activeSection === 'menu' ? 'active' : ''}
           onClick={() => setActiveSection('menu')}
         >
@@ -75,14 +78,10 @@ function AdminPage() {
       </div>
 
       <div className="admin-content">
-        {activeSection === 'users' && (
-          <UsersSection users={users} addUser={addUser} deleteUser={deleteUser} />
-        )}
-        {activeSection === 'endpoints' && (
-          <EndpointsSection 
-            endpoints={endpoints} 
-            addEndpoint={addEndpoint} 
-            deleteEndpoint={deleteEndpoint} 
+        {activeSection === 'users' && <Users />}
+        {activeSection === 'workstations' && (
+          <WorkstationsSection 
+            endpoints={endpoints}
           />
         )}
         {activeSection === 'menu' && (
@@ -93,34 +92,369 @@ function AdminPage() {
   );
 }
 
-function UsersSection({ users = [], addUser, deleteUser }) {
+function WorkstationsSection({ endpoints = [] }) {
+  const workstations = useMenuStore((state) => state.workstations);
+  const loadWorkstations = useMenuStore((state) => state.loadWorkstations);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [successMessage, setSuccessMessage] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [editingWorkstationId, setEditingWorkstationId] = useState(null);
+  const [editingData, setEditingData] = useState({});
+  const [newWorkstationData, setNewWorkstationData] = useState({ name: '', slug: '', color: '#667eea' });
+  const [createError, setCreateError] = useState('');
+
+  useEffect(() => {
+    const loadData = async () => {
+      setLoading(true);
+      try {
+        await loadWorkstations();
+        setError(null);
+      } catch (err) {
+        console.error('[Workstations] Failed to load workstations:', err);
+        setError('Αποτυχία φόρτωσης σημείων');
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadData();
+  }, [loadWorkstations]);
+
+  useEffect(() => {
+    if (successMessage) {
+      const timer = setTimeout(() => setSuccessMessage(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [successMessage]);
+
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => setError(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
+
+  useEffect(() => {
+    if (createError) {
+      const timer = setTimeout(() => setCreateError(''), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [createError]);
+
+  const handleCreateWorkstation = async (e) => {
+    e.preventDefault();
+    setCreateError('');
+
+    if (!newWorkstationData.name.trim()) {
+      setCreateError('Το όνομα είναι απαραίτητο');
+      return;
+    }
+
+    if (!newWorkstationData.slug.trim()) {
+      setCreateError('Το slug είναι απαραίτητο');
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      const newWorkstation = await createWorkstation({
+        name: newWorkstationData.name,
+        slug: newWorkstationData.slug.toLowerCase().trim(),
+        color: newWorkstationData.color,
+      });
+      setNewWorkstationData({ name: '', slug: '', color: '#667eea' });
+      await loadWorkstations();
+      setShowCreateModal(false);
+      setSuccessMessage(`Σημείο "${newWorkstation.name}" δημιουργήθηκε με επιτυχία`);
+    } catch (err) {
+      console.error('[Workstations] Failed to create workstation:', err);
+      setCreateError(err.detail || err.message || 'Αποτυχία δημιουργίας σημείου');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleStartEditColor = (workstation) => {
+    setEditingWorkstationId(workstation.id);
+    setEditingData({ name: workstation.name, slug: workstation.slug, color: workstation.color });
+  };
+
+  const handleSaveColor = async (workstationId) => {
+    try {
+      setIsSubmitting(true);
+      setError(null);
+      const updatedWorkstation = await updateWorkstation(workstationId, {
+        name: editingData.name,
+        slug: editingData.slug,
+        color: editingData.color,
+      });
+      await loadWorkstations();
+      setSuccessMessage('Σημείο ενημερώθηκε επιτυχώς');
+      setEditingWorkstationId(null);
+    } catch (err) {
+      console.error('[Workstations] Failed to update:', err);
+      setError(err.detail || err.message || 'Αποτυχία ενημέρωσης');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditingWorkstationId(null);
+    setEditingData({});
+  };
+
+  const handleToggleActive = async (workstation) => {
+    try {
+      setIsSubmitting(true);
+      setError(null);
+      const updatedWorkstation = await updateWorkstation(workstation.id, {
+        active: !workstation.active,
+      });
+      await loadWorkstations();
+      const action = updatedWorkstation.active ? 'ενεργοποιήθηκε' : 'απενεργοποιήθηκε';
+      setSuccessMessage(`Σημείο "${workstation.name}" ${action}`);
+    } catch (err) {
+      console.error('[Workstations] Failed to toggle active:', err);
+      setError(err.detail || err.message || 'Αποτυχία ενημέρωσης');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteWorkstation = async (workstation) => {
+    if (
+      !confirm(
+        `Είστε σίγουροι ότι θέλετε να διαγράψετε το σημείο "${workstation.name}"; Τα στοιχεία που χρησιμοποιούν αυτή την κατηγορία θα πρέπει να ανατεθούν ξανά.`
+      )
+    ) {
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      setError(null);
+      await deleteWorkstation(workstation.id);
+      await loadWorkstations();
+      setSuccessMessage(`Σημείο "${workstation.name}" διαγράφηκε`);
+    } catch (err) {
+      console.error('[Workstations] Failed to delete workstation:', err);
+      setError(err.detail || err.message || 'Αποτυχία διαγραφής');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <div className="section">
-      <h2>Διαχείριση Χρηστών</h2>
-      {users.length === 0 ? (
-        <p className="info-text">Δεν υπάρχουν χρήστες ακόμα. Η διαχείριση χρηστών θα προστεθεί σύντομα.</p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <h2>Διαχείριση Σημείων Εξυπηρέτησης</h2>
+        <button
+          className="btn btn-primary"
+          onClick={() => setShowCreateModal(true)}
+          disabled={loading || isSubmitting}
+        >
+          + Προσθήκη
+        </button>
+      </div>
+
+      {error && <div className="alert alert-error">{error}</div>}
+      {successMessage && <div className="alert alert-success">{successMessage}</div>}
+
+      {loading ? (
+        <p className="info-text">Φόρτωση σημείων...</p>
+      ) : workstations.length === 0 ? (
+        <p className="info-text">Δεν βρέθηκαν σημεία εξυπηρέτησης.</p>
       ) : (
-        <div className="user-list">
-          {users.map((user) => (
-            <div key={user.id} className="user-card">
-              <div className="user-info">
-                <h3>{user.name}</h3>
-                <p>@{user.username} • {user.role}</p>
-              </div>
-              <button 
-                onClick={() => deleteUser(user.id)} 
-                className="delete-btn"
-                disabled={user.role === ROLES.ADMIN}
-              >
-                Διαγραφή
-              </button>
+        <div className="endpoint-list">
+          {workstations.map((workstation) => (
+            <div key={workstation.id} className="endpoint-card">
+              {editingWorkstationId === workstation.id ? (
+                <>
+                  <div className="endpoint-color-edit">
+                    <input
+                      type="color"
+                      value={editingData.color || workstation.color || '#667eea'}
+                      onChange={(e) =>
+                        setEditingData((prev) => ({ ...prev, color: e.target.value }))
+                      }
+                      disabled={isSubmitting}
+                    />
+                  </div>
+                  <div className="endpoint-info">
+                    <div className="form-group">
+                      <input
+                        type="text"
+                        value={editingData.name}
+                        onChange={(e) =>
+                          setEditingData((prev) => ({ ...prev, name: e.target.value }))
+                        }
+                        disabled={isSubmitting}
+                        placeholder="Όνομα"
+                      />
+                    </div>
+                    <div className="form-group">
+                      <input
+                        type="text"
+                        value={editingData.slug}
+                        onChange={(e) =>
+                          setEditingData((prev) => ({ ...prev, slug: e.target.value }))
+                        }
+                        disabled={isSubmitting}
+                        placeholder="Slug"
+                      />
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button
+                      className="btn btn-small btn-primary"
+                      onClick={() => handleSaveColor(workstation.id)}
+                      disabled={isSubmitting}
+                    >
+                      ✓
+                    </button>
+                    <button
+                      className="btn btn-small btn-cancel"
+                      onClick={handleCancelEdit}
+                      disabled={isSubmitting}
+                    >
+                      ✗
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div
+                    className="endpoint-color"
+                    style={{ backgroundColor: workstation.color || '#667eea' }}
+                    title="Κλικ για επεξεργασία"
+                  />
+                  <div className="endpoint-info">
+                    <h3>{workstation.name}</h3>
+                    <p>{workstation.slug}</p>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button
+                      className="btn btn-small"
+                      onClick={() => handleStartEditColor(workstation)}
+                      title="Επεξεργασία"
+                    >
+                      ✎
+                    </button>
+                    <button
+                      className={`btn btn-small ${workstation.active ? 'btn-danger' : 'btn-success'}`}
+                      onClick={() => handleToggleActive(workstation)}
+                      disabled={isSubmitting}
+                      title={workstation.active ? 'Απενεργοποίηση' : 'Ενεργοποίηση'}
+                    >
+                      {workstation.active ? '⊘' : '✓'}
+                    </button>
+                    <button
+                      className="delete-btn"
+                      onClick={() => handleDeleteWorkstation(workstation)}
+                      disabled={isSubmitting}
+                      title="Διαγραφή"
+                    >
+                      🗑
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           ))}
         </div>
       )}
-      <p className="info-text" style={{marginTop: '20px'}}>
-        Η δημιουργία νέων χρηστών θα προστεθεί σύντομα.
-      </p>
+
+      {/* Create Workstation Modal */}
+      {showCreateModal && (
+        <div className="modal-overlay" onClick={() => setShowCreateModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Προσθήκη Νέου Σημείου</h2>
+              <button
+                className="close-btn"
+                onClick={() => setShowCreateModal(false)}
+              >
+                ×
+              </button>
+            </div>
+            <form onSubmit={handleCreateWorkstation}>
+              <div style={{ padding: '20px' }}>
+                {createError && <div className="alert alert-error" style={{ marginBottom: '15px' }}>{createError}</div>}
+                
+                <div className="form-group">
+                  <label htmlFor="ws-name">Όνομα *</label>
+                  <input
+                    type="text"
+                    id="ws-name"
+                    value={newWorkstationData.name}
+                    onChange={(e) =>
+                      setNewWorkstationData((prev) => ({
+                        ...prev,
+                        name: e.target.value,
+                      }))
+                    }
+                    placeholder="π.χ., Ψησταριά"
+                    disabled={isSubmitting}
+                    autoFocus
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="ws-slug">Slug *</label>
+                  <input
+                    type="text"
+                    id="ws-slug"
+                    value={newWorkstationData.slug}
+                    onChange={(e) =>
+                      setNewWorkstationData((prev) => ({
+                        ...prev,
+                        slug: e.target.value,
+                      }))
+                    }
+                    placeholder="π.χ., grill (χωρίς κενά)"
+                    disabled={isSubmitting}
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="ws-color">Χρώμα</label>
+                  <input
+                    type="color"
+                    id="ws-color"
+                    value={newWorkstationData.color}
+                    onChange={(e) =>
+                      setNewWorkstationData((prev) => ({
+                        ...prev,
+                        color: e.target.value,
+                      }))
+                    }
+                    disabled={isSubmitting}
+                  />
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  className="btn btn-cancel"
+                  onClick={() => setShowCreateModal(false)}
+                  disabled={isSubmitting}
+                >
+                  Ακύρωση
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting ? 'Δημιουργία...' : 'Δημιουργία'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -164,10 +498,16 @@ function MenuSection({ onResetMenu }) {
   const menu = useMenuStore((state) => state.menu);
   const [loading, setLoading] = useState(true);
   const loadMenu = useMenuStore((state) => state.loadMenu);
+  const workstations = useMenuStore((state) => state.workstations);
+  const loadWorkstations = useMenuStore((state) => state.loadWorkstations);
 
   useEffect(() => {
     loadMenu().finally(() => setLoading(false));
   }, [loadMenu]);
+
+  useEffect(() => {
+    loadWorkstations();
+  }, [loadWorkstations]);
 
   if (loading) {
     return <div className="section"><p>Φόρτωση μενού...</p></div>;
@@ -192,6 +532,24 @@ function MenuSection({ onResetMenu }) {
     }
   });
 
+  const getCategoryLabel = (slug) => {
+    const ws = workstations.find((item) => item.slug === slug);
+    return ws?.name || slug;
+  };
+
+  const getCategoryColor = (slug) => {
+    const ws = workstations.find((item) => item.slug === slug);
+    return ws?.color || '#667eea';
+  };
+
+  const formatPrice = (price) => {
+    const numericPrice = Number(price);
+    if (Number.isFinite(numericPrice)) {
+      return `€${numericPrice.toFixed(2)}`;
+    }
+    return '—';
+  };
+
   return (
     <div className="section">
       <h2>Διαχείριση Μενού</h2>
@@ -214,16 +572,16 @@ function MenuSection({ onResetMenu }) {
             {allItems.map((item) => (
               <tr key={item.id} style={{ borderBottom: '1px solid #eee' }}>
                 <td style={{ padding: 12 }}>{item.name}</td>
-                <td style={{ padding: 12 }}>€{item.price.toFixed(2)}</td>
+                <td style={{ padding: 12 }}>{formatPrice(item.price)}</td>
                 <td style={{ padding: 12 }}>
                   <span style={{
                     padding: '4px 8px',
                     borderRadius: 4,
-                    backgroundColor: item.category === 'kitchen' ? '#4CAF50' : item.category === 'grill' ? '#FF5722' : '#2196F3',
+                    backgroundColor: getCategoryColor(item.category),
                     color: '#fff',
                     fontSize: 12,
                   }}>
-                    {item.category === 'kitchen' ? 'Κουζίνα' : item.category === 'grill' ? 'Ψησταριά' : 'Ποτά'}
+                    {getCategoryLabel(item.category)}
                   </span>
                 </td>
                 <td style={{ padding: 12, fontSize: 14, color: '#666' }}>{item.section}</td>

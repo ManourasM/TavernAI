@@ -16,6 +16,7 @@ from sqlalchemy.orm import sessionmaker, Session
 from app.storage.base import Storage
 from app.db.models import Base, Order, OrderItem, TableSession, MenuItem, Receipt
 from app.db import init_db
+from app.utils.time_utils import now_athens_naive, to_athens
 
 
 class SQLAlchemyStorage(Storage):
@@ -43,23 +44,21 @@ class SQLAlchemyStorage(Storage):
             future=True,
             pool_pre_ping=True,
         )
-        
-        # Create sessionmaker
         self.SessionLocal = sessionmaker(bind=self.engine)
         
         # Initialize database schema using canonical models
         use_alembic = os.getenv("USE_ALEMBIC", "false").lower() == "true"
         try:
             init_db(self.engine, use_alembic=use_alembic, base=Base)
-            print(f"[SQLAlchemyStorage] ✅ Database initialized successfully at {self.database_url}")
+            print(f"[SQLAlchemyStorage] [OK] Database initialized successfully at {self.database_url}")
         except Exception as e:
-            print(f"[SQLAlchemyStorage] ⚠️ Warning during database initialization: {e}")
+            print(f"[SQLAlchemyStorage] [WARNING] Warning during database initialization: {e}")
             # Only create missing tables, don't drop existing data
             try:
                 Base.metadata.create_all(self.engine)
-                print(f"[SQLAlchemyStorage] ✅ Created missing tables (existing data preserved)")
+                print(f"[SQLAlchemyStorage] [OK] Created missing tables (existing data preserved)")
             except Exception as fallback_error:
-                print(f"[SQLAlchemyStorage] ❌ Failed to create tables: {fallback_error}")
+                print(f"[SQLAlchemyStorage] [ERROR] Failed to create tables: {fallback_error}")
                 # Don't raise here - allow app to start anyway, may work partially
         
         # UUID to DB ID mapping (in-memory for backward compat)
@@ -128,7 +127,6 @@ class SQLAlchemyStorage(Storage):
         """Close the current table session and create receipt. Returns the receipt ID."""
         db_session = self._get_session()
         try:
-            from datetime import datetime
             import json
             print(f"[delete_table] Closing sessions for table {table_id}")
             
@@ -145,7 +143,7 @@ class SQLAlchemyStorage(Storage):
             receipt_id = None
             for ts in sessions:
                 # Close the session
-                ts.closed_at = datetime.utcnow()
+                ts.closed_at = now_athens_naive()
                 session_id = ts.id
                 print(f"[delete_table] Closing session {session_id} for table {ts.table_label}")
                 
@@ -180,8 +178,8 @@ class SQLAlchemyStorage(Storage):
                 # Build receipt content with ALL items from the session
                 receipt_content = {
                     "table": ts.table_label,
-                    "created_at": ts.opened_at.isoformat() if ts.opened_at else None,
-                    "closed_at": ts.closed_at.isoformat() if ts.closed_at else None,
+                    "created_at": to_athens(ts.opened_at).isoformat() if ts.opened_at else None,
+                    "closed_at": to_athens(ts.closed_at).isoformat() if ts.closed_at else None,
                     "items": [
                         {
                             "name": item.name,
@@ -366,7 +364,7 @@ class SQLAlchemyStorage(Storage):
                         "menu_id": item.menu_item.external_id if item.menu_item else None,
                         "category": item.category or self._infer_category(item),  # Use stored category first
                         "status": item.status,
-                        "created_at": order.created_at.isoformat() + "Z" if order.created_at else None,
+                        "created_at": to_athens(order.created_at).isoformat() if order.created_at else None,
                     }
                     result.append(item_dict)
             
@@ -455,7 +453,7 @@ class SQLAlchemyStorage(Storage):
                 "menu_id": item.menu_item.external_id if item.menu_item else None,
                 "category": self._infer_category(item),
                 "status": item.status,
-                "created_at": order.created_at.isoformat() + "Z" if order.created_at else None,
+                "created_at": to_athens(order.created_at).isoformat() if order.created_at else None,
             }
         finally:
             db_session.close()
@@ -493,7 +491,7 @@ class SQLAlchemyStorage(Storage):
                     )
                     
                     if older_than_seconds > 0:
-                        cutoff = datetime.utcnow() - timedelta(seconds=older_than_seconds)
+                        cutoff = now_athens_naive() - timedelta(seconds=older_than_seconds)
                         items_stmt = items_stmt.where(order.created_at < cutoff)
                     
                     items = db_session.execute(items_stmt).scalars().all()

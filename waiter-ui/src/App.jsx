@@ -185,7 +185,9 @@ export default function App() {
 
   // Setup waiter websocket
   useEffect(() => {
-    wsRef.current = createWS("waiter", (msg) => {
+    wsRef.current = createWS(
+      "waiter",
+      (msg) => {
       try {
         if (!msg || typeof msg !== "object") return;
         const action = msg.action || msg.type;
@@ -282,7 +284,14 @@ export default function App() {
       } catch (e) {
         console.error("[waiter WS handler] error", e, msg);
       }
-    });
+      },
+      null,
+      {
+        onSync: async () => {
+          await refresh();
+        }
+      }
+    );
 
     return () => { try { wsRef.current && wsRef.current.close(); } catch (e) {} };
   }, [playDoneSound]);

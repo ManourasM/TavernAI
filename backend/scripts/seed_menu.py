@@ -112,10 +112,15 @@ def seed_menu(
     total_items = 0
     for section_key, items_list in menu_dict.items():
         if not isinstance(items_list, list):
-            logger.warning(f"Skipping section '{section_key}' - not a list")
+            logger.warning(f"Skipping section '{section_key}' - not a list, skipping")
             continue
         
         for item_dict in items_list:
+            # Skip non-dict items (e.g., metadata that was included by accident)
+            if not isinstance(item_dict, dict):
+                logger.warning(f"Skipping item in section '{section_key}' - not a dict")
+                continue
+                
             total_items += 1
             
             # Determine station from category or section

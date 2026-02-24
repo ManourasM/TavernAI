@@ -6,6 +6,7 @@ for migration generation. They are kept separate from storage adapters.
 """
 
 from datetime import datetime
+from app.utils.time_utils import now_athens_naive
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, JSON, ForeignKey, Index, Text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
@@ -23,7 +24,7 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
     roles = Column(JSON, default=[], nullable=False)  # e.g., ["waiter", "kitchen"]
     pin = Column(String(6), nullable=True)  # Optional PIN for quick login
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=now_athens_naive, nullable=False)
     
     # Relationships
     menu_versions = relationship("MenuVersion", back_populates="created_by")
@@ -35,13 +36,29 @@ class User(Base):
         return f"<User(id={self.id}, username={self.username})>"
 
 
+class Workstation(Base):
+    """Kitchen workstations where orders are prepared."""
+    
+    __tablename__ = "workstations"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False, index=True)  # e.g., "Grill", "Kitchen"
+    slug = Column(String(100), unique=True, nullable=False, index=True)  # e.g., "grill", "kitchen"
+    color = Column(String(7), default="#667eea", nullable=False)  # Hex color code (e.g., "#667eea")
+    created_at = Column(DateTime, default=now_athens_naive, nullable=False)
+    active = Column(Boolean, default=True, nullable=False, index=True)  # Soft-delete flag
+    
+    def __repr__(self):
+        return f"<Workstation(id={self.id}, name={self.name}, slug={self.slug}, color={self.color}, active={self.active})>"
+
+
 class MenuVersion(Base):
     """Version history for menus."""
     
     __tablename__ = "menu_versions"
     
     id = Column(Integer, primary_key=True, index=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=now_athens_naive, nullable=False)
     created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     json_blob = Column(JSON, nullable=False)  # Full menu structure snapshot
     
@@ -96,7 +113,7 @@ class TableSession(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     table_label = Column(String(50), nullable=False)  # "Table 1", "Bar 5", etc.
-    opened_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    opened_at = Column(DateTime, default=now_athens_naive, nullable=False, index=True)
     closed_at = Column(DateTime, nullable=True)
     waiter_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     
@@ -122,7 +139,7 @@ class Order(Base):
     table_session_id = Column(Integer, ForeignKey("table_sessions.id"), nullable=False, index=True)
     created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     status = Column(String(50), default="pending", nullable=False)  # pending, confirmed, ready, served, closed
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    created_at = Column(DateTime, default=now_athens_naive, nullable=False, index=True)
     total = Column(Integer, nullable=True)  # Total in cents
     
     __table_args__ = (
@@ -200,7 +217,7 @@ class NLPTrainingSample(Base):
     predicted_menu_item_id = Column(String(255), nullable=True, index=True)
     corrected_menu_item_id = Column(String(255), nullable=True)
     corrected_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=now_athens_naive, nullable=False)
     
     __table_args__ = (
         Index("idx_nlp_samples_created", "created_at"),

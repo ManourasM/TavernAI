@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createWS, getOrders, markDone } from "../services/api";
 import { useSounds } from "../utils/sounds";
 
-export default function StationView({ station }) {
+export default function StationView({ station, stationName, stationColor }) {
   const [ordersMap, setOrdersMap] = useState({}); // { tableStr: { table, items: [...], meta } }
   const [checked, setChecked] = useState({});     // { itemId: true }
 
@@ -14,9 +14,7 @@ export default function StationView({ station }) {
   // --- Helpers ---
   function itemForThisStation(item) {
     if (!item) return false;
-    if (station === "grill") return item.category === "grill";
-    if (station === "drinks") return item.category === "drinks";
-    return item.category !== "grill" && item.category !== "drinks";
+    return item.category === station;
   }
 
   function upsertItem(item) {
@@ -51,28 +49,31 @@ export default function StationView({ station }) {
     });
   }
 
+  const syncState = async () => {
+    const resp = await getOrders();
+    if (!resp || typeof resp !== "object") return;
+    const next = {};
+    Object.keys(resp).forEach(table => {
+      const arr = Array.isArray(resp[table]) ? resp[table] : [];
+      const filtered = arr.filter(it => itemForThisStation(it));
+      if (filtered.length > 0) {
+        next[String(table)] = { table: parseInt(table, 10), items: filtered.slice(), meta: (filtered[0] && filtered[0].meta) || { people: null, bread: false } };
+        next[String(table)].items.sort((a,b) => (a.created_at || "").localeCompare(b.created_at || ""));
+      }
+    });
+    setOrdersMap(next);
+  };
+
   // initial load
   useEffect(() => {
-    getOrders().then(resp => {
-      if (!resp || typeof resp !== "object") return;
-      setOrdersMap(prev => {
-        const copy = { ...prev };
-        Object.keys(resp).forEach(table => {
-          const arr = Array.isArray(resp[table]) ? resp[table] : [];
-          const filtered = arr.filter(it => itemForThisStation(it));
-          if (filtered.length > 0) {
-            copy[String(table)] = { table: parseInt(table, 10), items: filtered.slice(), meta: (filtered[0] && filtered[0].meta) || { people: null, bread: false } };
-            copy[String(table)].items.sort((a,b) => (a.created_at || "").localeCompare(b.created_at || ""));
-          }
-        });
-        return copy;
-      });
-    }).catch(err => console.warn("getOrders failed", err));
+    syncState().catch(err => console.warn("getOrders failed", err));
   }, [station]);
 
   // websocket handler
   useEffect(() => {
-    const ws = createWS(station, (msg) => {
+    const ws = createWS(
+      station,
+      (msg) => {
       try {
         if (!msg || !msg.action) return;
 
@@ -135,7 +136,14 @@ export default function StationView({ station }) {
       } catch (e) {
         console.warn("WS handler error", e, msg);
       }
-    });
+      },
+      null,
+      {
+        onSync: async () => {
+          await syncState();
+        }
+      }
+    );
     return () => { try { ws.close(); } catch (e) {} };
   }, [station, playNewOrderSound]);
 
@@ -246,17 +254,40 @@ export default function StationView({ station }) {
 
   const isNarrow = typeof window !== "undefined" && window.innerWidth < 700;
 
-  // Modern color scheme based on station type
-  const stationColors = {
-    kitchen: { primary: "#4CAF50", secondary: "#81C784", bg: "#E8F5E9", dark: "#2E7D32" },
-    grill: { primary: "#FF5722", secondary: "#FF8A65", bg: "#FBE9E7", dark: "#D84315" },
-    drinks: { primary: "#2196F3", secondary: "#64B5F6", bg: "#E3F2FD", dark: "#1565C0" }
+  const hexToRgb = (hex) => {
+    const normalized = String(hex || '').replace('#', '');
+    if (normalized.length !== 6) return { r: 102, g: 126, b: 234 };
+    const r = parseInt(normalized.slice(0, 2), 16);
+    const g = parseInt(normalized.slice(2, 4), 16);
+    const b = parseInt(normalized.slice(4, 6), 16);
+    return { r, g, b };
   };
 
-  const colors = stationColors[station] || stationColors.kitchen;
+  const rgbToHex = (r, g, b) => {
+    const clamp = (v) => Math.max(0, Math.min(255, v));
+    return `#${[r, g, b].map((v) => clamp(v).toString(16).padStart(2, '0')).join('')}`;
+  };
+
+  const mixWith = (hex, mix, weight) => {
+    const base = hexToRgb(hex);
+    const target = hexToRgb(mix);
+    const w = Math.max(0, Math.min(1, weight));
+    const r = Math.round(base.r * (1 - w) + target.r * w);
+    const g = Math.round(base.g * (1 - w) + target.g * w);
+    const b = Math.round(base.b * (1 - w) + target.b * w);
+    return rgbToHex(r, g, b);
+  };
+
+  const baseColor = stationColor || '#667eea';
+  const colors = {
+    primary: baseColor,
+    secondary: mixWith(baseColor, '#ffffff', 0.35),
+    bg: mixWith(baseColor, '#ffffff', 0.85),
+    dark: mixWith(baseColor, '#000000', 0.25),
+  };
 
   const styles = {
-    pageBg: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+    pageBg: "#f5f6f8",
     cardBg: "#ffffff",
     lightCard: "#f8f9fa",
     text: "#2c3e50",
@@ -268,7 +299,7 @@ export default function StationView({ station }) {
     shadowHover: "0 8px 12px rgba(0,0,0,0.15)"
   };
 
-  const stationTitle = station === "grill" ? "ΨΗΣΤΑΡΙΑ" : station === "drinks" ? "ΠΟΤΑ" : "ΚΟΥΖΙΝΑ";
+  const stationTitle = (stationName || station || '').toUpperCase();
 
   return (
     <div style={{
@@ -428,7 +459,7 @@ export default function StationView({ station }) {
                         {item.text || item.name}
                       </div>
                       <div style={{ fontSize: 12, color: styles.muted }}>
-                        🕐 {item.created_at ? new Date(item.created_at).toLocaleTimeString('el-GR') : ""}
+                        🕐 {item.created_at ? new Date(item.created_at).toLocaleTimeString('el-GR', { timeZone: 'Europe/Athens' }) : ""}
                       </div>
                     </div>
                     <div style={{

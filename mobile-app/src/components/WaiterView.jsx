@@ -162,12 +162,21 @@ function WaiterView() {
       }
     }
     
-    wsRef.current = createWS('waiter', (msg) => {
-      handleWebSocketMessage(msg);
-    }, () => {
-      console.log('[WaiterView] WebSocket connected');
-      setConnected(true);
-    });
+    wsRef.current = createWS(
+      'waiter',
+      (msg) => {
+        handleWebSocketMessage(msg);
+      },
+      () => {
+        console.log('[WaiterView] WebSocket connected');
+        setConnected(true);
+      },
+      {
+        onSync: async () => {
+          await loadOrders();
+        }
+      }
+    );
 
     return () => {
       console.log('[WaiterView] Cleaning up WebSocket');
@@ -254,6 +263,12 @@ function WaiterView() {
       } else {
         console.log('[WaiterView] Receipt already opened (blocked duplicate):', receiptId, 'ms ago:', now - lastOpened);
       }
+
+      // Return to the tables overview after finalizing
+      setSelectedTable(null);
+      setOrderText('');
+      setPeople('');
+      setBread(false);
     } else if (data.action === 'finalized_ok' && data.table !== undefined) {
       // Finalization confirmed
       console.log('[WaiterView] Finalization confirmed for table:', data.table);

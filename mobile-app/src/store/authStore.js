@@ -6,9 +6,7 @@ import * as authService from '../services/authService';
 export const ROLES = {
   ADMIN: 'admin',
   WAITER: 'waiter',
-  KITCHEN: 'kitchen',
-  GRILL: 'grill',
-  DRINKS: 'drinks',
+  STATION_PREFIX: 'station_',
 };
 
 const useAuthStore = create(
@@ -145,24 +143,20 @@ const useAuthStore = create(
         return roles.includes(role);
       },
 
-      // Get accessible endpoints based on user roles
-      getAccessibleEndpoints: () => {
+      // Get accessible stations based on user roles and available station slugs
+      getAccessibleStations: (stationSlugs = []) => {
         const user = get().user;
         if (!user) return [];
-        
+
         const roles = user.roles || [];
-        
-        // Map roles to endpoint names
-        const endpoints = [];
-        if (roles.includes(ROLES.ADMIN)) {
-          return ['waiter', 'kitchen', 'grill', 'drinks'];
-        }
-        if (roles.includes(ROLES.WAITER)) endpoints.push('waiter');
-        if (roles.includes(ROLES.KITCHEN)) endpoints.push('kitchen');
-        if (roles.includes(ROLES.GRILL)) endpoints.push('grill');
-        if (roles.includes(ROLES.DRINKS)) endpoints.push('drinks');
-        
-        return endpoints;
+        if (roles.includes(ROLES.ADMIN)) return stationSlugs;
+
+        const stationRoles = roles
+          .filter((role) => typeof role === 'string' && role.startsWith(ROLES.STATION_PREFIX))
+          .map((role) => role.replace(ROLES.STATION_PREFIX, ''))
+          .filter((slug) => stationSlugs.includes(slug));
+
+        return stationRoles;
       },
 
       // Check if user is admin

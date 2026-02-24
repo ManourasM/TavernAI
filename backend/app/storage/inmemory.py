@@ -7,6 +7,7 @@ Behavior is identical to the existing MVP implementation.
 
 from collections import defaultdict
 from datetime import datetime
+from app.utils.time_utils import iso_athens
 from typing import Dict, List, Any, Optional
 from .base import Storage
 
@@ -95,7 +96,7 @@ class InMemoryStorage(Storage):
             ]
         else:
             # Remove only those created before the cutoff time
-            now = datetime.utcnow().isoformat()
+            now = iso_athens()
             cutoff_time = now
             # Simple comparison: keep pending and recent done/cancelled
             self._orders_by_table[table_id] = [

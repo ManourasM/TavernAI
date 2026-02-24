@@ -18,9 +18,12 @@ from app.api.menu_router import router as menu_router
 from app.api.receipts_router import router as receipts_router
 from app.api.nlp_router import router as nlp_router
 from app.api.auth_router import router as auth_router
+from app.api.users_router import router as users_router
+from app.api.workstations_router import router as workstations_router
 from app.db.dependencies import get_db_session
 from app.db.models import NLPTrainingSample
 from app.db import order_utils  # Helper functions for normalized Order/OrderItem domain
+from app.utils.time_utils import iso_athens
 
 app = FastAPI(title="Tavern Ordering Backend (MVP)")
 
@@ -74,7 +77,7 @@ else:
     print(f"[main] Initializing InMemory storage (no persistence)")
     app.state.storage = InMemoryStorage()
 
-print(f"[main] ✅ Storage backend initialized: {storage_backend}")
+print(f"[main] [OK] Storage backend initialized: {storage_backend}")
 
 
 
@@ -87,6 +90,10 @@ app.include_router(receipts_router)
 app.include_router(nlp_router)
 # Wire in the auth router
 app.include_router(auth_router)
+# Wire in the users router
+app.include_router(users_router)
+# Wire in the workstations router
+app.include_router(workstations_router)
 
 
 # ---------- Startup and Shutdown Events ----------
@@ -151,8 +158,8 @@ async def shutdown_event():
             print(f"Warning: Error closing SQLiteStorage: {e}")
 
 
-# Keep websocket clients per station (kitchen, grill, drinks, waiter)
-station_connections: Dict[str, List[WebSocket]] = {"kitchen": [], "grill": [], "drinks": [], "waiter": []}
+# Keep websocket clients per station (dynamic + waiter)
+station_connections: Dict[str, List[WebSocket]] = {"waiter": []}
 lock = asyncio.Lock()  # ensure atomic updates when multiple requests come in
 
 
@@ -438,9 +445,9 @@ def _make_item(line_text: str, table: int, category: str, menu_id: str = None,
         "unit_price": unit_price,  # float or None
         "line_total": line_total,  # float or None
         "menu_id": matched_id,
-        "category": category,  # 'kitchen'|'grill'|'drinks'
+        "category": category,  # station category slug (e.g., 'kitchen', 'grill', 'drinks', or custom)
         "status": "pending",  # pending / done / cancelled
-        "created_at": datetime.utcnow().isoformat() + "Z",
+        "created_at": iso_athens(),
     }
 
 
@@ -459,11 +466,9 @@ async def broadcast_to_station(station: str, message: Dict):
 
 
 async def broadcast_to_all(message: Dict):
-    """Broadcast to kitchen, grill, drinks and waiter."""
-    await broadcast_to_station("kitchen", message)
-    await broadcast_to_station("grill", message)
-    await broadcast_to_station("drinks", message)
-    await broadcast_to_station("waiter", message)
+    """Broadcast to all connected stations (including waiter)."""
+    for station in list(station_connections.keys()):
+        await broadcast_to_station(station, message)
 
 
 def _pending_items_only(table_items: List[Dict]) -> List[Dict]:
@@ -639,13 +644,8 @@ async def submit_order(payload: SubmitOrder, storage: Storage = Depends(get_stor
         meta_for_table = storage.get_table(payload.table)
         for item in created_items:
             msg = {"action": "new", "item": item, "meta": meta_for_table}
-            # Route to appropriate station based on category
-            if item["category"] == "grill":
-                target_station = "grill"
-            elif item["category"] == "drinks":
-                target_station = "drinks"
-            else:
-                target_station = "kitchen"
+            # Route to station based on category slug
+            target_station = item.get("category") or "kitchen"
             asyncio.create_task(broadcast_to_station(target_station, msg))
 
         # Notify waiter clients about each new item & meta
@@ -729,10 +729,7 @@ async def replace_table_order(table: int, payload: SubmitOrder, storage: Storage
         msg_meta = {"action": "meta_update", "table": table, "meta": storage.get_table(table)}
 
         # Broadcast meta update to all stations and waiter
-        asyncio.create_task(broadcast_to_station("kitchen", msg_meta))
-        asyncio.create_task(broadcast_to_station("grill", msg_meta))
-        asyncio.create_task(broadcast_to_station("drinks", msg_meta))
-        asyncio.create_task(broadcast_to_station("waiter", msg_meta))
+        asyncio.create_task(broadcast_to_all(msg_meta))
 
         # Get full menu and check for hidden items
         from app.db.menu_access import get_latest_menu
@@ -869,51 +866,27 @@ async def replace_table_order(table: int, payload: SubmitOrder, storage: Storage
         # Broadcast deletes for cancelled items and notify waiter
         for it in cancelled_items:
             msg = {"action": "delete", "item_id": it["id"], "table": table}
-            # Route to appropriate station based on category
-            if it["category"] == "grill":
-                target_station = "grill"
-            elif it["category"] == "drinks":
-                target_station = "drinks"
-            else:
-                target_station = "kitchen"
+            target_station = it.get("category") or "kitchen"
             asyncio.create_task(broadcast_to_station(target_station, msg))
             asyncio.create_task(broadcast_to_station("waiter", {"action": "update", "item": it, "meta": storage.get_table(table)}))
 
         # Broadcast updated items (quantity/text changed) to stations and waiter
         meta_for_table = storage.get_table(table)
         for it in updated_items:
-            # Route to appropriate station based on category
-            if it["category"] == "grill":
-                target_station = "grill"
-            elif it["category"] == "drinks":
-                target_station = "drinks"
-            else:
-                target_station = "kitchen"
+            target_station = it.get("category") or "kitchen"
             asyncio.create_task(broadcast_to_station(target_station, {"action": "update", "item": it, "meta": meta_for_table}))
             asyncio.create_task(broadcast_to_station("waiter", {"action": "update", "item": it, "meta": meta_for_table}))
 
         # Broadcast new items (with meta) and notify waiter
         for it in new_items_created:
-            # Route to appropriate station based on category
-            if it["category"] == "grill":
-                target_station = "grill"
-            elif it["category"] == "drinks":
-                target_station = "drinks"
-            else:
-                target_station = "kitchen"
+            target_station = it.get("category") or "kitchen"
             asyncio.create_task(broadcast_to_station(target_station, {"action": "new", "item": it, "meta": meta_for_table}))
             asyncio.create_task(broadcast_to_station("waiter", {"action": "update", "item": it, "meta": meta_for_table}))
 
         # Broadcast update for remaining pending items (kept + new) so stations refresh table header
         remaining_pending = [it for it in storage.get_orders(table) if it["status"] == "pending"]
         for it in remaining_pending:
-            # Route to appropriate station based on category
-            if it["category"] == "grill":
-                target_station = "grill"
-            elif it["category"] == "drinks":
-                target_station = "drinks"
-            else:
-                target_station = "kitchen"
+            target_station = it.get("category") or "kitchen"
             asyncio.create_task(broadcast_to_station(target_station, {"action": "update", "item": it, "meta": meta_for_table}))
             asyncio.create_task(broadcast_to_station("waiter", {"action": "update", "item": it, "meta": meta_for_table}))
 
@@ -934,13 +907,7 @@ async def cancel_item(table: int, item_id: str, storage: Storage = Depends(get_s
         storage.update_order_status(table, item_id, "cancelled")
         
         msg = {"action": "delete", "item_id": item_id, "table": table}
-        # Route to appropriate station based on category
-        if item["category"] == "grill":
-            target_station = "grill"
-        elif item["category"] == "drinks":
-            target_station = "drinks"
-        else:
-            target_station = "kitchen"
+        target_station = item.get("category") or "kitchen"
         asyncio.create_task(broadcast_to_station(target_station, msg))
         # also notify waiter (so UI can update and show cancelled)
         asyncio.create_task(broadcast_to_station("waiter", {"action": "update", "item": item, "meta": storage.get_table(table)}))
@@ -950,10 +917,7 @@ async def cancel_item(table: int, item_id: str, storage: Storage = Depends(get_s
         if not pending_left:
             # Inform clients that pending are gone (meta remains until waiter finalizes)
             meta_msg = {"action": "meta_update", "table": table, "meta": storage.get_table(table)}
-            asyncio.create_task(broadcast_to_station("waiter", meta_msg))
-            asyncio.create_task(broadcast_to_station("kitchen", meta_msg))
-            asyncio.create_task(broadcast_to_station("grill", meta_msg))
-            asyncio.create_task(broadcast_to_station("drinks", meta_msg))
+            asyncio.create_task(broadcast_to_all(meta_msg))
 
     return {"status": "ok", "cancelled": item_id}
 
@@ -977,7 +941,7 @@ async def mark_item_done(item_id: str, storage: Storage = Depends(get_storage)):
 
         storage.update_order_status(found_table, item_id, "done")
 
-        # notify both kitchen/grill about status change
+        # notify all stations about status change
         asyncio.create_task(broadcast_to_all({"action": "update", "item": found_item, "meta": storage.get_table(found_table)}))
 
         # also notify waiter: update & short notification
@@ -993,10 +957,7 @@ async def mark_item_done(item_id: str, storage: Storage = Depends(get_storage)):
         pending_left = [x for x in storage.get_orders(found_table) if x.get("status") == "pending"]
         if not pending_left:
             meta_msg = {"action": "meta_update", "table": found_table, "meta": storage.get_table(found_table)}
-            asyncio.create_task(broadcast_to_station("waiter", meta_msg))
-            asyncio.create_task(broadcast_to_station("kitchen", meta_msg))
-            asyncio.create_task(broadcast_to_station("grill", meta_msg))
-            asyncio.create_task(broadcast_to_station("drinks", meta_msg))
+            asyncio.create_task(broadcast_to_all(meta_msg))
 
     return {"status": "ok", "item": found_item}
 
@@ -1030,7 +991,7 @@ async def purge_done(older_than_seconds: int = 0, storage: Storage = Depends(get
 @app.websocket("/ws/{station}")
 async def station_ws(websocket: WebSocket, station: str):
     """
-    Register a kitchen, grill, drinks or waiter websocket. The station will receive JSON messages of the form:
+    Register a station or waiter websocket. The station will receive JSON messages of the form:
       { action: "new"|"delete"|"update", item: {...} } or {action:"delete", item_id: "..."}
 
     Waiter sockets may send:
@@ -1039,10 +1000,10 @@ async def station_ws(websocket: WebSocket, station: str):
       { action: "mark_done", item_id: "..." } to mark item as done
     """
     station = station.lower()
-    if station not in ("kitchen", "grill", "drinks", "waiter"):
+    if not station:
         await websocket.close(code=4001)
         return
-
+    
     await websocket.accept()
     station_connections.setdefault(station, []).append(websocket)
     storage = get_storage()
@@ -1061,25 +1022,15 @@ async def station_ws(websocket: WebSocket, station: str):
             
             await websocket.send_json({"action": "init", "orders": orders_snapshot, "meta": meta_snapshot})
         else:
-            # For kitchen/grill/drinks: send current pending items for that station in chronological order, attach meta to each item
+            # For stations: send current pending items for that station in chronological order, attach meta to each item
             pending = []
             for table_id in storage.list_tables():
                 table_items = storage.get_orders(table_id)
                 for it in table_items:
-                    if it["status"] == "pending":
-                        # Route items to appropriate station based on category
-                        if station == "grill" and it["category"] == "grill":
-                            item_copy = dict(it)
-                            item_copy["meta"] = storage.get_table(it["table"])
-                            pending.append(item_copy)
-                        elif station == "drinks" and it["category"] == "drinks":
-                            item_copy = dict(it)
-                            item_copy["meta"] = storage.get_table(it["table"])
-                            pending.append(item_copy)
-                        elif station == "kitchen" and it["category"] not in ("grill", "drinks"):
-                            item_copy = dict(it)
-                            item_copy["meta"] = storage.get_table(it["table"])
-                            pending.append(item_copy)
+                    if it["status"] == "pending" and it.get("category") == station:
+                        item_copy = dict(it)
+                        item_copy["meta"] = storage.get_table(it["table"])
+                        pending.append(item_copy)
             pending.sort(key=lambda x: x["created_at"])
             await websocket.send_json({"action": "init", "items": pending})
 
@@ -1139,13 +1090,8 @@ async def station_ws(websocket: WebSocket, station: str):
                     for it in items_to_remove:
                         # send delete to stations
                         msg = {"action": "delete", "item_id": it["id"], "table": table_to_finalize}
-                        # Route to appropriate station based on category
-                        if it["category"] == "grill":
-                            target_station = "grill"
-                        elif it["category"] == "drinks":
-                            target_station = "drinks"
-                        else:
-                            target_station = "kitchen"
+                        # Route to appropriate station based on category slug
+                        target_station = it.get("category") or "kitchen"
                         asyncio.create_task(broadcast_to_station(target_station, msg))
                         # notify waiters as well
                         asyncio.create_task(broadcast_to_station("waiter", msg))
@@ -1171,7 +1117,7 @@ async def station_ws(websocket: WebSocket, station: str):
 
                 continue
 
-            # ---------- Station (kitchen/grill) action: mark_done ----------
+            # ---------- Station action: mark_done ----------
             if data.get("action") == "mark_done" and "item_id" in data:
                 item_id = data["item_id"]
                 async with lock:
