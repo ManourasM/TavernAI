@@ -14,7 +14,8 @@ from sqlalchemy import create_engine, select, delete, func
 from sqlalchemy.orm import sessionmaker, Session
 
 from app.storage.base import Storage
-from app.db.models import Base, Order, OrderItem, TableSession, MenuItem, Receipt
+from app.storage.models import TableMetaModel
+from app.db.models import Base, Order, OrderItem, TableSession, MenuItem, Receipt, RestaurantProfile
 from app.db import init_db
 from app.utils.time_utils import now_athens_naive, to_athens
 
@@ -51,11 +52,14 @@ class SQLAlchemyStorage(Storage):
         try:
             init_db(self.engine, use_alembic=use_alembic, base=Base)
             print(f"[SQLAlchemyStorage] [OK] Database initialized successfully at {self.database_url}")
+            TableMetaModel.__table__.create(bind=self.engine, checkfirst=True)
+            print("[SQLAlchemyStorage] [OK] Ensured table_meta exists for table metadata")
         except Exception as e:
             print(f"[SQLAlchemyStorage] [WARNING] Warning during database initialization: {e}")
             # Only create missing tables, don't drop existing data
             try:
                 Base.metadata.create_all(self.engine)
+                TableMetaModel.__table__.create(bind=self.engine, checkfirst=True)
                 print(f"[SQLAlchemyStorage] [OK] Created missing tables (existing data preserved)")
             except Exception as fallback_error:
                 print(f"[SQLAlchemyStorage] [ERROR] Failed to create tables: {fallback_error}")
@@ -93,19 +97,10 @@ class SQLAlchemyStorage(Storage):
         """Get metadata for a table (people count, bread)."""
         db_session = self._get_session()
         try:
-            # Table metadata is stored in TableSession
-            stmt = (
-                select(TableSession)
-                .where(TableSession.table_label == str(table_id))
-                .where(TableSession.closed_at.is_(None))
-            )
-            table_session = db_session.execute(stmt).scalar_one_or_none()
-            
-            if table_session:
-                # For now, we don't store people/bread in TableSession
-                # Could add these as columns or use extra_data JSON column
-                return {"people": None, "bread": False}
-            
+            stmt = select(TableMetaModel).where(TableMetaModel.table_id == table_id)
+            row = db_session.execute(stmt).scalar_one_or_none()
+            if row:
+                return row.to_dict()
             return {"people": None, "bread": False}
         finally:
             db_session.close()
@@ -117,9 +112,19 @@ class SQLAlchemyStorage(Storage):
             with db_session.begin():
                 # Get or create table session
                 self._get_or_create_table_session(db_session, table_id)
-                # Note: TableSession doesn't have people/bread columns
-                # This is a limitation of the normalized model
-                # Could add these if needed or store in separate metadata table
+                stmt = select(TableMetaModel).where(TableMetaModel.table_id == table_id)
+                row = db_session.execute(stmt).scalar_one_or_none()
+                if row:
+                    row.people = data.get("people")
+                    row.bread = bool(data.get("bread", False))
+                else:
+                    db_session.add(
+                        TableMetaModel(
+                            table_id=table_id,
+                            people=data.get("people"),
+                            bread=bool(data.get("bread", False)),
+                        )
+                    )
         finally:
             db_session.close()
     
@@ -175,8 +180,18 @@ class SQLAlchemyStorage(Storage):
                         receipt_id = existing_receipt.id
                         continue
                 
+                # Get restaurant profile for receipt
+                restaurant_id = os.getenv("RESTAURANT_ID", "default")
+                restaurant_stmt = select(RestaurantProfile).where(RestaurantProfile.restaurant_id == restaurant_id)
+                restaurant_profile = db_session.execute(restaurant_stmt).scalars().first()
+                
                 # Build receipt content with ALL items from the session
                 receipt_content = {
+                    "restaurant": {
+                        "name": restaurant_profile.name if restaurant_profile else "My Taverna",
+                        "phone": restaurant_profile.phone if restaurant_profile else None,
+                        "address": restaurant_profile.address if restaurant_profile else None,
+                    } if restaurant_profile else None,
                     "table": ts.table_label,
                     "created_at": to_athens(ts.opened_at).isoformat() if ts.opened_at else None,
                     "closed_at": to_athens(ts.closed_at).isoformat() if ts.closed_at else None,
@@ -207,6 +222,12 @@ class SQLAlchemyStorage(Storage):
                     db_session.flush()  # Get the ID
                     receipt_id = receipt.id
                     print(f"[delete_table] Created single receipt_id={receipt_id} for session {session_id} with {len(all_items)} items")
+
+            # Clear table metadata so next order starts from defaults
+            db_session.execute(
+                delete(TableMetaModel).where(TableMetaModel.table_id == table_id)
+            )
+            print(f"[delete_table] Cleared metadata for table {table_id}")
             
             # Commit all changes
             db_session.commit()
@@ -388,11 +409,24 @@ class SQLAlchemyStorage(Storage):
                 stmt = select(OrderItem).where(OrderItem.id == db_id)
                 item = db_session.execute(stmt).scalar_one_or_none()
                 
-                if item:
-                    item.status = status
-                    return True
-                
-                return False
+                if not item:
+                    return False
+
+                order_stmt = select(Order).where(Order.id == item.order_id)
+                order = db_session.execute(order_stmt).scalar_one_or_none()
+                if not order:
+                    return False
+
+                session_stmt = select(TableSession).where(TableSession.id == order.table_session_id)
+                table_session = db_session.execute(session_stmt).scalar_one_or_none()
+                if not table_session:
+                    return False
+
+                if str(table_id) != str(table_session.table_label):
+                    return False
+
+                item.status = status
+                return True
         finally:
             db_session.close()
     
@@ -410,13 +444,25 @@ class SQLAlchemyStorage(Storage):
                 stmt = select(OrderItem).where(OrderItem.id == db_id)
                 item = db_session.execute(stmt).scalar_one_or_none()
                 
-                if item:
-                    db_session.delete(item)
-                    # Remove from UUID mapping
-                    del self._uuid_to_db_id[item_id]
-                    return True
-                
-                return False
+                if not item:
+                    return False
+
+                order_stmt = select(Order).where(Order.id == item.order_id)
+                order = db_session.execute(order_stmt).scalar_one_or_none()
+                if not order:
+                    return False
+
+                session_stmt = select(TableSession).where(TableSession.id == order.table_session_id)
+                table_session = db_session.execute(session_stmt).scalar_one_or_none()
+                if not table_session:
+                    return False
+
+                if str(table_id) != str(table_session.table_label):
+                    return False
+
+                db_session.delete(item)
+                del self._uuid_to_db_id[item_id]
+                return True
         finally:
             db_session.close()
     
@@ -439,11 +485,25 @@ class SQLAlchemyStorage(Storage):
             # Get associated Order for created_at
             order_stmt = select(Order).where(Order.id == item.order_id)
             order = db_session.execute(order_stmt).scalar_one()
+
+            session_stmt = select(TableSession).where(TableSession.id == order.table_session_id)
+            table_session = db_session.execute(session_stmt).scalar_one_or_none()
+            if not table_session:
+                return None
+
+            if str(table_id) != str(table_session.table_label):
+                return None
+
+            actual_table = table_id
+            try:
+                actual_table = int(table_session.table_label)
+            except Exception:
+                actual_table = table_id
             
             # Convert to legacy format
             return {
                 "id": item_id,
-                "table": table_id,
+                "table": actual_table,
                 "text": item.name,
                 "menu_name": item.name,
                 "name": item.name,

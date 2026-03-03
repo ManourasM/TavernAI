@@ -1,6 +1,7 @@
 # backend/app/main.py
 import asyncio
 import os
+import logging
 from typing import Dict, List, Optional, Any
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query, Request, Depends
 from pydantic import BaseModel
@@ -20,12 +21,28 @@ from app.api.nlp_router import router as nlp_router
 from app.api.auth_router import router as auth_router
 from app.api.users_router import router as users_router
 from app.api.workstations_router import router as workstations_router
+from app.api.restaurant_router import router as restaurant_router
 from app.db.dependencies import get_db_session
 from app.db.models import NLPTrainingSample
 from app.db import order_utils  # Helper functions for normalized Order/OrderItem domain
 from app.utils.time_utils import iso_athens
 
 app = FastAPI(title="Tavern Ordering Backend (MVP)")
+
+class _NoisyRequestFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        if "WebSocket /ws/" in msg and "[accepted]" in msg:
+            return False
+        return True
+
+# Silence high-frequency request/access logs (GET polling + WS accepted lines)
+# Set QUIET_ACCESS_LOGS=0 to re-enable uvicorn access logs when needed.
+if os.getenv("QUIET_ACCESS_LOGS", "1") == "1":
+    logging.getLogger("uvicorn.access").disabled = True
+    noisy_filter = _NoisyRequestFilter()
+    logging.getLogger("uvicorn.error").addFilter(noisy_filter)
+    logging.getLogger("websockets.server").addFilter(noisy_filter)
 
 # Allow CORS for local dev (adjust in production)
 app.add_middleware(
@@ -94,6 +111,8 @@ app.include_router(auth_router)
 app.include_router(users_router)
 # Wire in the workstations router
 app.include_router(workstations_router)
+# Wire in the restaurant profile router
+app.include_router(restaurant_router)
 
 
 # ---------- Startup and Shutdown Events ----------
@@ -459,7 +478,7 @@ async def broadcast_to_station(station: str, message: Dict):
         try:
             await ws.send_json(message)
             alive.append(ws)
-        except Exception:
+        except Exception as e:
             # Connection closed/errored — drop it
             pass
     station_connections[station] = alive
@@ -524,10 +543,6 @@ def check_for_hidden_items_in_order(order_text: str, menu_dict: Dict[str, Any]) 
                 if isinstance(item, dict) and item.get("hidden") is True:
                     if item.get("name"):
                         hidden_items_list.append(item.get("name"))
-                        print(f"[check_for_hidden_items] Found hidden item: {item.get('name')}")
-    
-    print(f"[check_for_hidden_items] Total hidden items: {len(hidden_items_list)}")
-    print(f"[check_for_hidden_items] Order lines: {lines}")
     
     def normalize_and_tokenize(text):
         """Normalize text and return tokens (keywords)."""
@@ -552,7 +567,6 @@ def check_for_hidden_items_in_order(order_text: str, menu_dict: Dict[str, Any]) 
                     continue
                 similarity = 1 - (dist / max_len)
                 if similarity > 0.75:  # 75% match threshold
-                    print(f"[check_for_hidden_items]   Token match: '{t1}' ~ '{t2}' (sim={similarity:.2f})")
                     return True
         return False
     
@@ -570,7 +584,6 @@ def check_for_hidden_items_in_order(order_text: str, menu_dict: Dict[str, Any]) 
             if token_similarity(line_tokens, hidden_tokens):
                 if hidden_name not in hidden_items:
                     hidden_items.append(hidden_name)
-                    print(f"[check_for_hidden_items] MATCH! '{line}' matches hidden item '{hidden_name}'")
     
     return hidden_items
 
@@ -589,12 +602,10 @@ async def submit_order(payload: SubmitOrder, storage: Storage = Depends(get_stor
         # Get the full menu (including hidden items)
         from app.db.menu_access import get_latest_menu
         latest_menu = get_latest_menu(db_session)
-        print(f"[submit_order] Menu loaded, db_session: {db_session}")
         
         # Check if order contains hidden items (before classification)
         hidden_items = check_for_hidden_items_in_order(payload.order_text, latest_menu)
         if hidden_items:
-            print(f"[submit_order] Hidden items found: {hidden_items}")
             raise HTTPException(
                 status_code=400,
                 detail={"error": "Order contains unavailable items", "hidden_items": hidden_items}
@@ -699,17 +710,31 @@ async def get_table_meta(table: int, storage: Storage = Depends(get_storage)):
 @app.get("/orders/", summary="List all tables and their current orders")
 async def list_orders(include_history: bool = Query(False, description="If true return full history including cancelled/done"), storage: Storage = Depends(get_storage)):
     """
-    Return all orders grouped by table.
+    Return all orders grouped by table, with metadata attached to each item.
     By default (include_history=false) return only pending items for each table.
     If include_history=true return the full list (pending/done/cancelled) per table.
     """
-    if include_history:
-        tables = storage.list_tables()
-        return {str(table): storage.get_orders(table) for table in tables}
-    else:
-        # return only pending items to keep frontend clean
-        tables = storage.list_tables()
-        return {str(table): _pending_items_only(storage.get_orders(table)) for table in tables}
+    tables = storage.list_tables()
+    result = {}
+    
+    for table in tables:
+        orders = storage.get_orders(table)
+        table_meta = storage.get_table(table)
+        
+        # Attach metadata to each item
+        orders_with_meta = []
+        for item in orders:
+            item_copy = dict(item)
+            item_copy['meta'] = table_meta
+            orders_with_meta.append(item_copy)
+        
+        if include_history:
+            result[str(table)] = orders_with_meta
+        else:
+            # return only pending items to keep frontend clean
+            result[str(table)] = _pending_items_only(orders_with_meta)
+    
+    return result
 
 
 @app.put("/order/{table}", summary="Replace/Update the active order for a table")
@@ -926,10 +951,12 @@ async def cancel_item(table: int, item_id: str, storage: Storage = Depends(get_s
 async def mark_item_done(item_id: str, storage: Storage = Depends(get_storage)):
     """Mark item done and broadcast update so UIs refresh status."""
     async with lock:
+        tables_snapshot = list(storage.list_tables())
+
         # Find the item in any table
         found_item = None
         found_table = None
-        for table in storage.list_tables():
+        for table in tables_snapshot:
             item = storage.get_order_by_id(table, item_id)
             if item and item["status"] == "pending":
                 found_item = item
@@ -940,6 +967,9 @@ async def mark_item_done(item_id: str, storage: Storage = Depends(get_storage)):
             raise HTTPException(status_code=404, detail="item not found or not pending")
 
         storage.update_order_status(found_table, item_id, "done")
+        
+        # Fetch the updated item with new status for broadcast
+        found_item = storage.get_order_by_id(found_table, item_id) or found_item
 
         # notify all stations about status change
         asyncio.create_task(broadcast_to_all({"action": "update", "item": found_item, "meta": storage.get_table(found_table)}))
@@ -948,10 +978,11 @@ async def mark_item_done(item_id: str, storage: Storage = Depends(get_storage)):
         asyncio.create_task(broadcast_to_station("waiter", {"action": "update", "item": found_item, "meta": storage.get_table(found_table)}))
         # Greek notification: e.g. "ετοιμα <text> τραπέζι <table>"
         try:
-            note_text = f"ετοιμα {found_item.get('text','')} τραπέζι {found_item.get('table')}"
+            item_text = found_item.get('text', '')
+            note_text = f"ετοιμα {item_text} τραπέζι {found_table}"
             asyncio.create_task(broadcast_to_station("waiter", {"action": "notify", "message": note_text, "id": str(uuid4())}))
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[mark_item_done] Error sending notification: {e}")
 
         # If no pending left, notify clients (meta remains until waiter finalizes)
         pending_left = [x for x in storage.get_orders(found_table) if x.get("status") == "pending"]
@@ -1059,21 +1090,14 @@ async def station_ws(websocket: WebSocket, station: str):
                 async with lock:
                     # Confirm table exists
                     if not storage.table_exists(table_to_finalize):
-                        print(f"[finalize_table] Table {table_to_finalize} not found")
                         await websocket.send_json({"action": "finalize_failed", "table": table_to_finalize, "reason": "table_not_found"})
                         continue
 
                     # Check pending items for this table
                     all_items = storage.get_orders(table_to_finalize)
-                    print(f"[finalize_table] Table {table_to_finalize} has {len(all_items)} items total")
-                    for idx, item in enumerate(all_items):
-                        print(f"[finalize_table]   Item {idx}: id={item.get('id')}, status={item.get('status')}, text={item.get('text', '')[:50]}")
                     pending_left = [x for x in all_items if x.get("status") == "pending"]
-                    print(f"[finalize_table] Table {table_to_finalize} has {len(pending_left)} pending items")
                     
                     if pending_left:
-                        # refuse finalize, include number of pending items
-                        print(f"[finalize_table] REJECTED - {len(pending_left)} pending items remain")
                         await websocket.send_json({"action": "finalize_failed", "table": table_to_finalize, "pending": len(pending_left), "reason": "items_pending"})
                         # also send an updated set of pending items back so waiter UI can refresh
                         pending_items = []
@@ -1085,7 +1109,6 @@ async def station_ws(websocket: WebSocket, station: str):
                         continue
 
                     # No pending items -> perform finalization: broadcast deletes and remove table & meta
-                    print(f"[finalize_table] SUCCESS - Finalizing table {table_to_finalize}")
                     items_to_remove = list(storage.get_orders(table_to_finalize))
                     for it in items_to_remove:
                         # send delete to stations
@@ -1098,12 +1121,21 @@ async def station_ws(websocket: WebSocket, station: str):
 
                     # remove the table from storage & meta, get the receipt_id
                     receipt_id = storage.delete_table(table_to_finalize)
-                    print(f"[finalize_table] Closed table and created receipt_id: {receipt_id}, type: {type(receipt_id)}")
 
                     # broadcast table_finalized to everyone so UIs remove any remaining traces
-                    tf_msg = {"action": "table_finalized", "table": table_to_finalize, "receipt_id": receipt_id}
-                    print(f"[finalize_table] Broadcasting table_finalized: {tf_msg}")
+                    tf_msg = {"action": "table_finalized", "table": table_to_finalize}
                     asyncio.create_task(broadcast_to_all(tf_msg))
+
+                    # notify only waiter clients to open/print receipt (only if receipt_id is valid)
+                    if receipt_id is not None:
+                        waiter_receipt_msg = {
+                            "action": "receipt_ready",
+                            "table": table_to_finalize,
+                            "receipt_id": receipt_id,
+                        }
+                        asyncio.create_task(broadcast_to_station("waiter", waiter_receipt_msg))
+                    else:
+                        print(f"[finalize_table] Receipt not supported by storage backend for table {table_to_finalize}")
 
                     # also broadcast meta reset for UI sync
                     meta_msg = {"action": "meta_update", "table": table_to_finalize, "meta": {"people": None, "bread": False}}
@@ -1121,10 +1153,12 @@ async def station_ws(websocket: WebSocket, station: str):
             if data.get("action") == "mark_done" and "item_id" in data:
                 item_id = data["item_id"]
                 async with lock:
+                    tables_snapshot = list(storage.list_tables())
+
                     found_item = None
                     found_table = None
                     # Search all tables for the item
-                    for table_id in storage.list_tables():
+                    for table_id in tables_snapshot:
                         item = storage.get_order_by_id(table_id, item_id)
                         if item and item["status"] == "pending":
                             storage.update_order_status(table_id, item_id, "done")
@@ -1138,7 +1172,7 @@ async def station_ws(websocket: WebSocket, station: str):
 
                         # also notify waiter with short notification text
                         try:
-                            note_text = f"ετοιμα {found_item.get('text','')} τραπέζι {found_item.get('table')}"
+                            note_text = f"ετοιμα {found_item.get('text','')} τραπέζι {found_table}"
                             asyncio.create_task(broadcast_to_station("waiter", {"action": "notify", "message": note_text, "id": str(uuid4())}))
                         except Exception:
                             pass
@@ -1162,12 +1196,10 @@ async def station_ws(websocket: WebSocket, station: str):
 
     except WebSocketDisconnect:
         # cleanup: remove websocket from list
-        print(f"[WebSocket] {station} disconnected normally")
         if websocket in station_connections.get(station, []):
             station_connections[station].remove(websocket)
     except Exception as e:
         # on any other error clean up
-        print(f"[WebSocket] ERROR in {station} connection: {e}")
         import traceback
         traceback.print_exc()
         if websocket in station_connections.get(station, []):

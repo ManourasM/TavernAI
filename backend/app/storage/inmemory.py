@@ -33,11 +33,13 @@ class InMemoryStorage(Storage):
         self._table_meta[table_id] = data
 
     def delete_table(self, table_id: int) -> None:
-        """Delete a table and all its associated orders."""
+        """Delete a table and all its associated orders. InMemory storage doesn't support receipts."""
         if table_id in self._orders_by_table:
             del self._orders_by_table[table_id]
         if table_id in self._table_meta:
             del self._table_meta[table_id]
+        # InMemory storage doesn't support receipts, return None
+        return None
 
     def list_tables(self) -> List[int]:
         """List all table IDs that have orders or metadata."""

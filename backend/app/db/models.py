@@ -229,3 +229,24 @@ class NLPTrainingSample(Base):
     
     def __repr__(self):
         return f"<NLPTrainingSample(id={self.id}, text={self.raw_text[:50]}...)>"
+
+
+class RestaurantProfile(Base):
+    """Restaurant profile with metadata for receipts and operations."""
+    
+    __tablename__ = "restaurant_profiles"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    restaurant_id = Column(String(255), unique=True, nullable=False, index=True)  # e.g., "default"
+    name = Column(String(255), nullable=False)  # Restaurant name (e.g., "Taverna Zorba")
+    phone = Column(String(20), nullable=True)  # Contact phone (e.g., "+30 2310 123456")
+    address = Column(String(500), nullable=True)  # Full address
+    extra_details = Column(JSON, nullable=True)  # Additional info: logo_url, website, hours, etc.
+    updated_at = Column(DateTime, default=now_athens_naive, nullable=False, onupdate=now_athens_naive)
+    
+    __table_args__ = (
+        Index("idx_restaurant_profiles_id", "restaurant_id"),
+    )
+    
+    def __repr__(self):
+        return f"<RestaurantProfile(id={self.id}, restaurant_id={self.restaurant_id}, name={self.name})>"

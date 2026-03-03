@@ -4,6 +4,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { fetchReceipt, formatDate, formatCurrency } from '../services/historyService';
+import { getProfile } from '../services/restaurantService';
 import './ReceiptView.css';
 
 export default function ReceiptView() {
@@ -12,22 +13,39 @@ export default function ReceiptView() {
   const printAreaRef = useRef(null);
   
   const [receipt, setReceipt] = useState(null);
+  const [restaurant, setRestaurant] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    loadReceipt();
+    loadReceiptAndProfile();
   }, [receiptId]);
 
-  const loadReceipt = async () => {
+  const loadReceiptAndProfile = async () => {
     setLoading(true);
     setError(null);
 
     try {
-      const data = await fetchReceipt(receiptId);
-      setReceipt(data);
+      // Load receipt
+      const receiptData = await fetchReceipt(receiptId);
+      setReceipt(receiptData);
+      
+      // Use restaurant data from receipt if available, otherwise fetch separately
+      if (receiptData.restaurant) {
+        console.log('[ReceiptView] Using restaurant data from receipt:', receiptData.restaurant);
+        setRestaurant(receiptData.restaurant);
+      } else {
+        // Fallback: fetch restaurant profile separately
+        console.log('[ReceiptView] Fetching restaurant profile...');
+        const profileData = await getProfile();
+        setRestaurant({
+          name: profileData.name,
+          phone: profileData.phone,
+          address: profileData.address,
+        });
+      }
     } catch (err) {
-      console.error('[ReceiptView] Failed to load receipt:', err);
+      console.error('[ReceiptView] Failed to load receipt/profile:', err);
       setError(err.message || 'Αποτυχία φόρτωσης απόδειξής');
     } finally {
       setLoading(false);
@@ -92,11 +110,23 @@ export default function ReceiptView() {
       <div className="receipt-content" ref={printAreaRef}>
         {/* Restaurant header */}
         <div className="receipt-restaurant">
-          <h1>ΤΑΒΕΡΝΑ</h1>
+          <h1>{restaurant?.name || 'ΤΑΒΕΡΝΑ'}</h1>
           <p className="restaurant-details">
-            Διεύθυνση Ταβέρνας<br />
-            Τηλ: +30 210 xxx xxxx<br />
-            ΑΦΜ: xxxxxxxxx
+            {restaurant?.address && (
+              <>
+                {restaurant.address}<br />
+              </>
+            )}
+            {restaurant?.phone && (
+              <>
+                Τηλ: {restaurant.phone}<br />
+              </>
+            )}
+            {restaurant?.extra_details?.afm && (
+              <>
+                ΑΦΜ: {restaurant.extra_details.afm}<br />
+              </>
+            )}
           </p>
         </div>
 

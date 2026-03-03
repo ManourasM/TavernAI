@@ -91,7 +91,7 @@ class SQLiteStorage(Storage):
             session.close()
     
     def delete_table(self, table_id: int) -> None:
-        """Delete a table and all its associated orders. Wrapped in transaction."""
+        """Delete a table and all its associated orders. SQLite storage doesn't support receipts yet."""
         session = self._get_session()
         try:
             with session.begin():
@@ -105,6 +105,8 @@ class SQLiteStorage(Storage):
                 )
         finally:
             session.close()
+        # SQLite storage doesn't support receipts, return None
+        return None
     
     def list_tables(self) -> List[int]:
         """List all table IDs that have orders or metadata."""
@@ -188,7 +190,10 @@ class SQLiteStorage(Storage):
         session = self._get_session()
         try:
             with session.begin():
-                stmt = select(OrderModel).where(OrderModel.item_id == item_id)
+                stmt = select(OrderModel).where(
+                    (OrderModel.table_id == table_id) &
+                    (OrderModel.item_id == item_id)
+                )
                 row = session.execute(stmt).scalar_one_or_none()
                 
                 if not row:
@@ -204,7 +209,10 @@ class SQLiteStorage(Storage):
         session = self._get_session()
         try:
             with session.begin():
-                stmt = select(OrderModel).where(OrderModel.item_id == item_id)
+                stmt = select(OrderModel).where(
+                    (OrderModel.table_id == table_id) &
+                    (OrderModel.item_id == item_id)
+                )
                 row = session.execute(stmt).scalar_one_or_none()
                 
                 if not row:
@@ -219,7 +227,10 @@ class SQLiteStorage(Storage):
         """Get a single order by item_id."""
         session = self._get_session()
         try:
-            stmt = select(OrderModel).where(OrderModel.item_id == item_id)
+            stmt = select(OrderModel).where(
+                (OrderModel.table_id == table_id) &
+                (OrderModel.item_id == item_id)
+            )
             row = session.execute(stmt).scalar_one_or_none()
             
             if not row:

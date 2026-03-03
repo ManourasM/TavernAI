@@ -28,8 +28,8 @@ class Storage(ABC):
         ...
 
     @abstractmethod
-    def delete_table(self, table_id: int) -> None:
-        """Delete a table and all its associated orders."""
+    def delete_table(self, table_id: int) -> Optional[int]:
+        """Delete a table and all its associated orders. Returns receipt_id if receipts are supported, None otherwise."""
         ...
 
     @abstractmethod

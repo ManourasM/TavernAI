@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { postOrder, putOrder, getOrders, getTableMeta, createWS, captureNlpSample, previewOrder } from '../services/api';
 import useMenuStore from '../store/menuStore';
 import CorrectionModal from './CorrectionModal';
+import { useSounds } from '../utils/sounds';
 import './WaiterView.css';
 
 // Global guard to prevent duplicate receipt tabs across all instances
@@ -18,6 +19,17 @@ setInterval(() => {
     }
   }
 }, 1000);
+
+// Helper to calculate table color based on items
+const getTableColor = (tableOrders) => {
+  if (!tableOrders || tableOrders.length === 0) return '#5cb85c'; // Green: empty
+  const hasPending = tableOrders.some((it) => it && it.status === 'pending');
+  const allDone = tableOrders.every((it) => it && (it.status === 'done' || it.status === 'cancelled'));
+  
+  if (allDone) return '#4a90e2'; // Blue: all done
+  if (hasPending) return '#d9534f'; // Red: has pending
+  return '#5cb85c'; // Green: default
+};
 
 function WaiterView() {
   const navigate = useNavigate();
@@ -36,9 +48,63 @@ function WaiterView() {
   const [previewUnclassified, setPreviewUnclassified] = useState([]);
   const [selectedItemForCorrection, setSelectedItemForCorrection] = useState(null);
   const [correctionLoading, setCorrectionLoading] = useState(false);
+  const [notifications, setNotifications] = useState([]); // {id, text}
   const wsRef = useRef(null);
+  const updateQueueRef = useRef([]); // Queue rapid updates
+  const processingQueueRef = useRef(false);
+  const recentNotifsRef = useRef(new Map()); // Track recent notifications to prevent duplicates
+  const notifTimersRef = useRef({}); // Track notification timers
   
+  const { playDoneSound } = useSounds();
   const menu = useMenuStore((state) => state.menu);
+
+  // Notification helpers (similar to legacy waiter UI)
+  const pushNotification = useCallback((text, opts = {}) => {
+    if (!text) return;
+    const serverId = opts.id || null;
+    const ttl = opts.ttl ?? 15000; // 15 seconds default
+    
+    const now = Date.now();
+    
+    // Prevent duplicate notifications
+    if (serverId) {
+      if (recentNotifsRef.current.has(serverId)) return;
+      recentNotifsRef.current.set(serverId, now + ttl);
+    } else {
+      const key = String(text).trim();
+      const existingExpiry = recentNotifsRef.current.get(key);
+      if (existingExpiry && existingExpiry > now) {
+        return;
+      }
+      recentNotifsRef.current.set(key, now + Math.max(ttl, 6000));
+    }
+    
+    const id = `notif-${Date.now()}-${Math.random()}`;
+    const message = String(text);
+    setNotifications((prev) => {
+      const next = [{ id, text: message }, ...prev].slice(0, 6); // Max 6 notifications
+      return next;
+    });
+    
+    // Auto-dismiss after TTL
+    const timer = setTimeout(() => {
+      setNotifications((prev) => prev.filter((n) => n.id !== id));
+      const now2 = Date.now();
+      for (const [k, expiry] of recentNotifsRef.current.entries()) {
+        if (expiry <= now2) recentNotifsRef.current.delete(k);
+      }
+      delete notifTimersRef.current[id];
+    }, ttl);
+    notifTimersRef.current[id] = timer;
+  }, []);
+
+  const dismissNotification = useCallback((id) => {
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
+    if (notifTimersRef.current[id]) {
+      clearTimeout(notifTimersRef.current[id]);
+      delete notifTimersRef.current[id];
+    }
+  }, []);
 
   // Helper function to format price
   const formatPrice = (price) => {
@@ -143,10 +209,42 @@ function WaiterView() {
     (it) => it && it.status !== 'cancelled' && (it.line_total === null || it.line_total === undefined)
   );
 
+  // Memoize table colors and data for efficient rendering
+  const tableDataMemo = useMemo(() => {
+    const tableNums = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17];
+    return tableNums.map((num) => {
+      const tableNum = String(num);
+      const tableOrders = tables[tableNum] || [];
+      return {
+        num,
+        tableNum,
+        color: getTableColor(tableOrders),
+        itemCount: tableOrders.length
+      };
+    });
+  }, [tables]);
+
   // Load initial orders
   useEffect(() => {
     loadOrders();
   }, []);
+
+  // Continuous fallback polling to keep table colors updated in real-time
+  // Polls every 2.5 seconds to sync table status (pending/done indicators)
+  useEffect(() => {
+    const refreshInterval = setInterval(async () => {
+      console.log('[WaiterView] Continuous poll: refreshing table data');
+      try {
+        const orders = await getOrders(true);
+        setTables(orders);
+      } catch (error) {
+        console.warn('[WaiterView] Continuous poll failed:', error);
+      }
+    }, 2500); // Poll every 2.5 seconds for smooth table color updates
+    
+    return () => clearInterval(refreshInterval);
+  }, []); // Empty dependency - runs continuously
+
 
   // Setup WebSocket connection
   useEffect(() => {
@@ -209,21 +307,44 @@ function WaiterView() {
         setTables(data.orders);
       }
     } else if (data.action === 'new' && data.item) {
-      // New item added
+      // New item added - process immediately (not frequent)
       const tableNum = String(data.item.table);
+      console.log('[WaiterView] New item for table', tableNum, ':', data.item);
       setTables((prev) => ({
         ...prev,
         [tableNum]: [...(prev[tableNum] || []), data.item],
       }));
     } else if (data.action === 'update' && data.item) {
-      // Item updated
+      // Item updated - queue for batch processing
       const tableNum = String(data.item.table);
-      setTables((prev) => ({
-        ...prev,
-        [tableNum]: (prev[tableNum] || []).map((item) =>
-          item.id === data.item.id ? data.item : item
-        ),
-      }));
+      console.log('[WaiterView] Update for table', tableNum, 'item', data.item.id, 'status:', data.item.status);
+      updateQueueRef.current.push(data.item);
+      
+      // Process queue if not already processing
+      if (!processingQueueRef.current) {
+        processingQueueRef.current = true;
+        // Use small timeout to batch rapid updates
+        setTimeout(() => {
+          const toProcess = updateQueueRef.current.splice(0);
+          processingQueueRef.current = false;
+          
+          console.log('[WaiterView] Processing batch update with', toProcess.length, 'items');
+          
+          if (toProcess.length === 0) return;
+          
+          setTables((prev) => {
+            let updated = { ...prev };
+            for (const item of toProcess) {
+              const tableNum = String(item.table);
+              const tableItems = updated[tableNum] || [];
+              updated[tableNum] = tableItems.map((it) =>
+                it.id === item.id ? item : it
+              );
+            }
+            return updated;
+          });
+        }, 50); // 50ms batch window
+      }
     } else if (data.action === 'delete' && data.item_id) {
       // Item deleted
       const tableNum = String(data.table);
@@ -232,10 +353,9 @@ function WaiterView() {
         [tableNum]: (prev[tableNum] || []).filter((item) => item.id !== data.item_id),
       }));
     } else if (data.action === 'table_finalized' && data.table !== undefined) {
-      // Table finalized successfully
+      // Table finalized successfully (shared cleanup event for all clients)
       const tableNum = String(data.table);
-      const receiptId = data.receipt_id || data.session_id || `table-${tableNum}-${Date.now()}`;
-      console.log('[WaiterView] Table finalized successfully:', tableNum, 'Receipt ID:', receiptId);
+      console.log('[WaiterView] Table finalized successfully:', tableNum);
       
       setTables((prev) => {
         const newTables = { ...prev };
@@ -251,11 +371,18 @@ function WaiterView() {
         setBread(false);
       }
 
-      // Open receipt in new tab (only once, global guard against duplicate broadcasts)
+      // Return to the tables overview after finalizing
+      setSelectedTable(null);
+      setOrderText('');
+      setPeople('');
+      setBread(false);
+    } else if (data.action === 'receipt_ready' && data.receipt_id) {
+      // Waiter-only event used to open/print receipt
+      const receiptId = data.receipt_id;
       const receiptKey = `receipt-${receiptId}`;
       const now = Date.now();
       const lastOpened = openedReceipts.get(receiptKey);
-      
+
       if (!lastOpened || (now - lastOpened) > RECEIPT_GUARD_TIMEOUT) {
         console.log('[WaiterView] Opening receipt tab for:', receiptId);
         openedReceipts.set(receiptKey, now);
@@ -263,12 +390,6 @@ function WaiterView() {
       } else {
         console.log('[WaiterView] Receipt already opened (blocked duplicate):', receiptId, 'ms ago:', now - lastOpened);
       }
-
-      // Return to the tables overview after finalizing
-      setSelectedTable(null);
-      setOrderText('');
-      setPeople('');
-      setBread(false);
     } else if (data.action === 'finalized_ok' && data.table !== undefined) {
       // Finalization confirmed
       console.log('[WaiterView] Finalization confirmed for table:', data.table);
@@ -286,13 +407,18 @@ function WaiterView() {
         alert(`Αποτυχία ολοκλήρωσης τραπεζιού ${data.table}: ${reason}`);
       }
     } else if (data.action === 'notify') {
-      // Notification from kitchen/grill/drinks
-      console.log('[WaiterView] Notification:', data.message);
-      // You can show a toast notification here
+      // Notification from kitchen/grill/drinks (item ready)
+      if (data.message) {
+        console.log('[WaiterView] Notification:', data.message);
+        // Play done sound
+        try { playDoneSound(); } catch (e) { console.warn('Failed to play done sound:', e); }
+        // Show notification toast
+        pushNotification(data.message, { id: data.id });
+      }
     }
   };
 
-  const handleSelectTable = async (tableNum) => {
+  const handleSelectTable = useCallback(async (tableNum) => {
     setSelectedTable(tableNum);
 
     // Load existing order for this table
@@ -309,7 +435,7 @@ function WaiterView() {
     } catch (error) {
       console.error('Failed to load table meta:', error);
     }
-  };
+  }, [tables]);
 
   const handleSubmitOrder = async () => {
     console.log('[handleSubmitOrder] called', { selectedTable, orderText, people, bread });
@@ -500,6 +626,46 @@ function WaiterView() {
 
   return (
     <div className="waiter-container">
+      {/* Notifications - Item Ready Toasts */}
+      <div style={{
+        position: 'fixed',
+        top: 100,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        zIndex: 9999,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 12,
+        maxWidth: '90vw',
+        maxHeight: '60vh',
+        overflowY: 'auto'
+      }}>
+        {notifications.map((notif) => (
+          <div
+            key={notif.id}
+            onClick={() => dismissNotification(notif.id)}
+            style={{
+              background: 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)',
+              color: '#fff',
+              padding: '16px 24px',
+              borderRadius: 12,
+              boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
+              fontSize: 18,
+              fontWeight: 600,
+              textAlign: 'center',
+              cursor: 'pointer',
+              lineHeight: '1.15',
+              minWidth: 240,
+              animation: 'slideInUp 0.3s ease-out',
+              whiteSpace: 'normal',
+              wordWrap: 'break-word'
+            }}
+          >
+            {notif.text}
+          </div>
+        ))}
+      </div>
+
       {/* Hidden Items Popup Modal */}
       {hiddenItemsPopup && hiddenItemsPopup.items && hiddenItemsPopup.items.length > 0 && (
         <div className="waiter-modal-overlay">
@@ -632,28 +798,16 @@ function WaiterView() {
         <>
           <h1 style={{ textAlign: 'center', color: '#fff', fontSize: 36, margin: '32px 0', textShadow: '0 2px 4px rgba(0,0,0,0.2)' }}>ΤΡΑΠΕΖΙΑ</h1>
           <div className="tables-grid">
-            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17].map((num) => {
-              const tableNum = String(num);
-              const tableOrders = tables[tableNum] || [];
-              const hasPending = tableOrders.some((it) => it && it.status === 'pending');
-              const hasAny = tableOrders.length > 0;
-              const allDone = hasAny && tableOrders.every((it) => it && (it.status === 'done' || it.status === 'cancelled'));
-
-              let color = '#5cb85c';
-              if (allDone) color = '#4a90e2';
-              else if (hasPending) color = '#d9534f';
-
-              return (
-                <button
-                  key={num}
-                  className="table-button"
-                  style={{ backgroundColor: color }}
-                  onClick={() => handleSelectTable(tableNum)}
-                >
-                  {num}
-                </button>
-              );
-            })}
+            {tableDataMemo.map(({ num, tableNum, color }) => (
+              <button
+                key={num}
+                className="table-button"
+                style={{ backgroundColor: color }}
+                onClick={() => handleSelectTable(tableNum)}
+              >
+                {num}
+              </button>
+            ))}
           </div>
         </>
       ) : (

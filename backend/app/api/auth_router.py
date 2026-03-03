@@ -43,7 +43,26 @@ class TokenResponse(BaseModel):
     token_type: str
 
 
-@router.post("/signup", response_model=SignupResponse, summary="Create a user (dev/bootstrap)")
+class BootstrapResponse(BaseModel):
+    needs_bootstrap: bool
+
+
+@router.get("/bootstrap", response_model=BootstrapResponse, summary="Check if bootstrap mode is active")
+async def check_bootstrap(req: Request):
+    """
+    Check if bootstrap mode is active (no users exist yet).
+    
+    Returns needs_bootstrap=True if the system has no users,
+    allowing the first user to sign up without credentials.
+    """
+    session = get_sqlalchemy_session(req)
+    try:
+        user_count = session.query(User).count()
+        return BootstrapResponse(needs_bootstrap=user_count == 0)
+    finally:
+        session.close()
+
+
 async def signup_user(request: SignupRequest, req: Request):
     """
     Create a user for dev/bootstrap.

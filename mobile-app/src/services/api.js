@@ -39,13 +39,10 @@ export async function refreshConfig() {
 }
 
 export async function getConfig() {
-  console.log("[getConfig] called, cache exists?", !!_configCache, "promise exists?", !!_configPromise);
   if (_configCache) {
-    console.log("[getConfig] returning cached config:", _configCache);
     return _configCache;
   }
   if (_configPromise) {
-    console.log("[getConfig] returning existing promise");
     return _configPromise;
   }
 
@@ -59,12 +56,9 @@ export async function getConfig() {
 
     for (const url of tries) {
       try {
-        console.log("[config] trying", url);
         const res = await fetch(url, { cache: "no-store" });
-        console.log("[config] response from", url, "status:", res.status);
         if (res.ok) {
           const j = await res.json();
-          console.log("[config] got config:", j);
           const raw_backend_base = j.backend_base || "";
           const raw_ws_base = j.ws_base || null;
           const port = j.backend_port || (raw_backend_base ? (new URL(raw_backend_base)).port : 8000);
@@ -82,7 +76,6 @@ export async function getConfig() {
               const pageHost = location.hostname;
               const pageIsLAN = pageHost && pageHost !== "localhost" && pageHost !== "127.0.0.1";
               if (hostIsLocal && pageIsLAN) {
-                console.debug("[config] replacing localhost in backend_base with page host:", pageHost);
                 parsed.hostname = pageHost;
                 // keep port from parsed (if any) or fallback to original port
                 if (!parsed.port) parsed.port = String(port || 8000);
@@ -95,7 +88,6 @@ export async function getConfig() {
               const pageHost = location.hostname;
               const pageIsLAN = pageHost && pageHost !== "localhost" && pageHost !== "127.0.0.1";
               if (wsHostIsLocal && pageIsLAN) {
-                console.debug("[config] replacing localhost in ws_base with page host:", pageHost);
                 parsedWs.hostname = pageHost;
                 if (!parsedWs.port) parsedWs.port = String(port || 8000);
                 ws_base = parsedWs.toString().replace(/\/+$/, "");
@@ -110,13 +102,9 @@ export async function getConfig() {
             ws_base: ws_base || `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}`,
             backend_port: port || (location.port ? Number(location.port) : 8000)
           };
-          console.log("[config] ✅ resolved:", _configCache);
           return _configCache;
-        } else {
-          console.log("[config] ❌ not ok:", url, res.status);
         }
       } catch (e) {
-        console.log("[config] ❌ fetch failed for", url, e.message);
       }
     }
 
@@ -126,14 +114,12 @@ export async function getConfig() {
       ws_base: `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}`,
       backend_port: location.port ? Number(location.port) : 80
     };
-    console.log("[config] ⚠️ falling back to page origin:", fallback);
     _configCache = fallback;
     return _configCache;
   })();
 
   try {
     const result = await _configPromise;
-    console.log("[config] final result:", result);
     return result;
   } catch (e) {
     console.error("[config] ERROR:", e);
@@ -159,14 +145,9 @@ function ensureLeadingSlash(path) {
 }
 
 async function buildHttpUrl(path) {
-  console.log("[buildHttpUrl] getting config for path:", path);
-  console.log("[buildHttpUrl] about to call getConfig()");
   const cfg = await getConfig();
-  console.log("[buildHttpUrl] getConfig() returned:", cfg);
   const base = (cfg && cfg.backend_base) ? String(cfg.backend_base).replace(/\/$/, "") : "";
-  console.log("[buildHttpUrl] base:", base);
   const url = `${base}${ensureLeadingSlash(path)}`;
-  console.log("[buildHttpUrl] built URL:", url);
   return url;
 }
 
@@ -185,25 +166,16 @@ async function buildWsUrl(station) {
    ---------------------------*/
 
 export async function postOrder(table, orderText, people = null, bread = false) {
-  console.log("[api.postOrder] START", { table, orderText, people, bread });
   const payload = { table, order_text: orderText };
   if (people !== null) payload.people = people;
   payload.bread = !!bread;
-  console.log("[api.postOrder] payload created:", payload);
 
-  console.log("[api.postOrder] calling buildHttpUrl...");
   const url = await buildHttpUrl("/order/");
-  console.log("[api.postOrder] got URL:", url);
-
-  console.log("[api] POST", url, payload);
-  console.log("[api.postOrder] calling fetch...");
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  console.log("[api.postOrder] fetch completed");
-  console.log("[api] POST response status:", res.status, res.statusText);
   if (!res.ok) {
     const errorText = await res.text();
     console.error("[api] POST failed:", res.status, errorText);
@@ -220,18 +192,15 @@ export async function postOrder(table, orderText, people = null, bread = false) 
     throw error;
   }
   const result = await res.json();
-  console.log("[api] POST result:", result);
   return result;
 }
 
 export async function previewOrder(table, orderText, people = null, bread = false) {
-  console.log("[api.previewOrder] START", { table, orderText, people, bread });
   const payload = { table, order_text: orderText };
   if (people !== null) payload.people = people;
   payload.bread = !!bread;
 
   const url = await buildHttpUrl("/order/preview");
-  console.log("[api] POST preview", url, payload);
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -258,13 +227,11 @@ export async function putOrder(table, orderText, people = null, bread = false) {
   if (people !== null) payload.people = people;
   payload.bread = !!bread;
   const url = await buildHttpUrl(`/order/${table}`);
-  console.log("[api] PUT", url, payload);
   const res = await fetch(url, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  console.log("[api] PUT response status:", res.status, res.statusText);
   if (!res.ok) {
     const errorText = await res.text();
     console.error("[api] PUT failed:", res.status, errorText);
@@ -281,21 +248,18 @@ export async function putOrder(table, orderText, people = null, bread = false) {
     throw error;
   }
   const result = await res.json();
-  console.log("[api] PUT result:", result);
   return result;
 }
 
 export async function getOrders(includeHistory = false) {
   const qs = includeHistory ? "?include_history=true" : "";
   const url = await buildHttpUrl(`/orders/${qs}`);
-  console.debug("[api] GET", url);
   const res = await fetch(url);
   return await res.json();
 }
 
 export async function getTableMeta(table) {
   const url = await buildHttpUrl(`/table_meta/${table}`);
-  console.debug("[api] GET meta", url);
   const res = await fetch(url);
   if (!res.ok) return { people: null, bread: false };
   return await res.json();
@@ -303,14 +267,12 @@ export async function getTableMeta(table) {
 
 export async function markDone(itemId) {
   const url = await buildHttpUrl(`/item/${itemId}/done`);
-  console.debug("[api] POST markDone", url);
   const res = await fetch(url, { method: "POST" });
   return await res.json();
 }
 
 export async function captureNlpSample(payload) {
   const url = await buildHttpUrl("/api/nlp/capture");
-  console.debug("[api] POST captureNlpSample", url, payload);
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -334,7 +296,6 @@ export async function captureNlpSample(payload) {
 
 export async function getNlpRules() {
   const url = await buildHttpUrl("/api/nlp/rules");
-  console.debug("[api] GET getNlpRules", url);
   const res = await fetch(url, { headers: buildAuthHeaders() });
   if (!res.ok) {
     const errorText = await res.text();
@@ -347,7 +308,6 @@ export async function getNlpRules() {
 
 export async function updateNlpRule(ruleId, payload) {
   const url = await buildHttpUrl(`/api/nlp/rules/${ruleId}`);
-  console.debug("[api] PUT updateNlpRule", url, payload);
   const res = await fetch(url, {
     method: "PUT",
     headers: { "Content-Type": "application/json", ...buildAuthHeaders() },
@@ -364,7 +324,6 @@ export async function updateNlpRule(ruleId, payload) {
 
 export async function deleteNlpRule(ruleId) {
   const url = await buildHttpUrl(`/api/nlp/rules/${ruleId}`);
-  console.debug("[api] DELETE deleteNlpRule", url);
   const res = await fetch(url, { method: "DELETE", headers: buildAuthHeaders() });
   if (!res.ok) {
     const errorText = await res.text();
@@ -408,7 +367,6 @@ export function createWS(station, onMessage, onOpen, options = {}) {
       const msg = outgoingQueue.shift();
       try {
         ws.send(JSON.stringify(msg));
-        console.debug("[WS] flushed msg", msg);
       } catch (e) {
         console.error("[WS] send during flush failed, pushing back to queue", e, msg);
         outgoingQueue.unshift(msg);
@@ -423,7 +381,6 @@ export function createWS(station, onMessage, onOpen, options = {}) {
     isConnecting = true;
 
     const wsUrl = await resolveWsUrl();
-    console.debug("[WS] connecting to", wsUrl, "for station", station);
     try {
       ws = new WebSocket(wsUrl);
     } catch (e) {
@@ -434,7 +391,6 @@ export function createWS(station, onMessage, onOpen, options = {}) {
     }
 
     ws.onopen = (ev) => {
-      console.debug("[WS] open", station, ev);
       isConnecting = false;
       if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
       if (onSync) {
@@ -463,7 +419,6 @@ export function createWS(station, onMessage, onOpen, options = {}) {
     };
 
     ws.onclose = (ev) => {
-      console.debug("[WS] closed", station, ev);
       isConnecting = false;
       ws = null;
       if (!closedByUser) scheduleReconnect();
@@ -494,11 +449,9 @@ export function createWS(station, onMessage, onOpen, options = {}) {
       try {
         if (ws && ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify(obj));
-          console.debug("[WS] sent", obj);
         } else {
           // buffer the message for later
           outgoingQueue.push(obj);
-          console.warn("[WS] not open: buffering message", obj);
           // ensure we try to connect
           scheduleReconnect(500);
           // also kick off connect if we don't have an active ws or ongoing connect

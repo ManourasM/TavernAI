@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useAuthStore from '../store/authStore';
 import useMenuStore from '../store/menuStore';
@@ -18,11 +18,19 @@ function HomePage() {
   const toggleMute = useNotificationStore((state) => state.toggleMute);
   
   const [activeTab, setActiveTab] = useState('waiter');
+  const [forceUnmount, setForceUnmount] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
     loadWorkstations();
   }, [loadWorkstations]);
+
+  // Cleanup on unmount - ensure all child components unmount before navigation
+  useEffect(() => {
+    return () => {
+      // Cleanup handled by child components
+    };
+  }, []);
 
   const stationSlugs = endpoints.map((ep) => ep.id);
   const roleStations = (user?.roles || [])
@@ -49,6 +57,10 @@ function HomePage() {
 
   const handleLogout = async () => {
     if (confirm('Είστε σίγουροι ότι θέλετε να αποσυνδεθείτε;')) {
+      // Force unmount all child components to close WebSocket connections
+      setForceUnmount(true);
+      // Wait for cleanup to complete
+      await new Promise(resolve => setTimeout(resolve, 100));
       await logout();
       navigate('/login');
     }
@@ -147,9 +159,10 @@ function HomePage() {
 
       {/* Tab Content */}
       <div className="tab-content">
-        {activeTab === 'waiter' && <WaiterView />}
-        {activeTab !== 'waiter' && (
+        {!forceUnmount && activeTab === 'waiter' && <WaiterView key="waiter" />}
+        {!forceUnmount && activeTab !== 'waiter' && (
           <StationView
+            key={activeTab}
             station={activeTab}
             stationName={endpoints.find((ep) => ep.id === activeTab)?.name}
             stationColor={endpoints.find((ep) => ep.id === activeTab)?.color}

@@ -57,6 +57,7 @@ export default function StationView({ station, stationName, stationColor }) {
       const arr = Array.isArray(resp[table]) ? resp[table] : [];
       const filtered = arr.filter(it => itemForThisStation(it));
       if (filtered.length > 0) {
+        // Metadata is now attached to each item by the backend
         next[String(table)] = { table: parseInt(table, 10), items: filtered.slice(), meta: (filtered[0] && filtered[0].meta) || { people: null, bread: false } };
         next[String(table)].items.sort((a,b) => (a.created_at || "").localeCompare(b.created_at || ""));
       }
@@ -144,7 +145,9 @@ export default function StationView({ station, stationName, stationColor }) {
         }
       }
     );
-    return () => { try { ws.close(); } catch (e) {} };
+    return () => { 
+      try { ws.close(); } catch (e) {} 
+    };
   }, [station, playNewOrderSound]);
 
   // checkbox toggle
@@ -390,7 +393,8 @@ export default function StationView({ station, stationName, stationColor }) {
                   color: colors.dark,
                   display: "flex",
                   alignItems: "center",
-                  gap: 8
+                  gap: 8,
+                  flexWrap: "wrap"
                 }}>
                   <span style={{
                     background: colors.primary,
@@ -406,18 +410,15 @@ export default function StationView({ station, stationName, stationColor }) {
                   }}>
                     {tableNum}
                   </span>
-                  Τραπέζι
-                </div>
-                <div style={{
-                  fontSize: 13,
-                  color: styles.muted,
-                  background: styles.lightCard,
-                  padding: "6px 12px",
-                  borderRadius: 8,
-                  fontWeight: 600
-                }}>
-                  {order.meta && order.meta.people ? <>👥 {order.meta.people}</> : null}
-                  {order.meta && order.meta.bread ? <span style={{ marginLeft: 8 }}>🍞</span> : null}
+                  <span>Τραπέζι</span>
+                  {order.meta && order.meta.people && (
+                    <span style={{ fontSize: 18, color: colors.dark }}>
+                      άτομα: {order.meta.people}
+                    </span>
+                  )}
+                  {order.meta && order.meta.bread && (
+                    <span style={{ fontSize: 20 }}>🍞</span>
+                  )}
                 </div>
               </div>
 

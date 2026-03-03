@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import useAuthStore from '../store/authStore';
 import useMenuStore from '../store/menuStore';
 import Users from './Admin/Users';
+import RestaurantProfile from './Admin/RestaurantProfile';
 import {
   listWorkstations,
   createWorkstation,
@@ -52,6 +53,12 @@ function AdminPage() {
           👥 Χρήστες
         </button>
         <button
+          className={activeSection === 'restaurant' ? 'active' : ''}
+          onClick={() => setActiveSection('restaurant')}
+        >
+          🏪 Προφίλ Ταβέρνας
+        </button>
+        <button
           className={activeSection === 'workstations' ? 'active' : ''}
           onClick={() => setActiveSection('workstations')}
         >
@@ -79,6 +86,7 @@ function AdminPage() {
 
       <div className="admin-content">
         {activeSection === 'users' && <Users />}
+        {activeSection === 'restaurant' && <RestaurantProfile />}
         {activeSection === 'workstations' && (
           <WorkstationsSection 
             endpoints={endpoints}
