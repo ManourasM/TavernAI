@@ -42,8 +42,11 @@ services:
     restart: unless-stopped
     networks:
       - tavern-network
+      - proxy-network
 
 networks:
   tavern-network:
     driver: bridge
+  proxy-network:
+    external: true
 
