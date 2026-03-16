@@ -22,8 +22,6 @@ RUN python -m spacy download el_core_news_sm || true
 # Copy application code
 COPY app/ ./app/
 COPY data/ ./data/
-COPY alembic/ ./alembic/
-COPY alembic.ini ./
 
 # Expose port
 EXPOSE 8000
