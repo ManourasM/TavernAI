@@ -57,12 +57,14 @@ async def check_bootstrap(req: Request):
     """
     session = get_sqlalchemy_session(req)
     try:
+        allow_dev = os.getenv("ENVIRONMENT", "dev").lower() == "dev"
         user_count = session.query(User).count()
-        return BootstrapResponse(needs_bootstrap=user_count == 0)
+        return BootstrapResponse(needs_bootstrap=(user_count == 0) or allow_dev)
     finally:
         session.close()
 
 
+@router.post("/signup", response_model=SignupResponse, summary="Create user in bootstrap/dev mode")
 async def signup_user(request: SignupRequest, req: Request):
     """
     Create a user for dev/bootstrap.
