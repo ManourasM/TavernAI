@@ -502,10 +502,16 @@ def _pending_items_only(table_items: List[Dict]) -> List[Dict]:
 async def get_config(request: Request):
     scheme = request.url.scheme or "http"
     host = request.url.hostname or "localhost"
-    port = request.url.port or 8000
-    base = f"{scheme}://{host}:{port}"
-    ws_base = f"{'wss' if scheme == 'https' else 'ws'}://{host}:{port}"
-    return {"backend_base": base, "ws_base": ws_base, "backend_port": port}
+    port = request.url.port
+    default_port = 443 if scheme == "https" else 80
+    port_suffix = f":{port}" if port and port != default_port else ""
+    base = f"{scheme}://{host}{port_suffix}"
+    ws_base = f"{'wss' if scheme == 'https' else 'ws'}://{host}{port_suffix}"
+    return {
+        "backend_base": base,
+        "ws_base": ws_base,
+        "backend_port": port or default_port,
+    }
 
 
 # Helper function to check if unclassified order lines match hidden items
