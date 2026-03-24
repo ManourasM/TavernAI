@@ -4,6 +4,7 @@ import useAuthStore from '../store/authStore';
 import useMenuStore from '../store/menuStore';
 import Users from './Admin/Users';
 import RestaurantProfile from './Admin/RestaurantProfile';
+import Analytics from './Admin/Analytics';
 import {
   listWorkstations,
   createWorkstation,
@@ -62,7 +63,7 @@ function AdminPage() {
           className={activeSection === 'workstations' ? 'active' : ''}
           onClick={() => setActiveSection('workstations')}
         >
-          🏪 Διαχείριση Σημείων
+          🏪 Διαχείριση Πόστων
         </button>
         <button
           className={activeSection === 'menu-editor' ? 'active' : ''}
@@ -82,6 +83,12 @@ function AdminPage() {
         >
           📋 Μενού
         </button>
+        <button
+          className={activeSection === 'analytics' ? 'active' : ''}
+          onClick={() => setActiveSection('analytics')}
+        >
+          📊 Στατιστικά
+        </button>
       </div>
 
       <div className="admin-content">
@@ -95,6 +102,7 @@ function AdminPage() {
         {activeSection === 'menu' && (
           <MenuSection onResetMenu={handleResetMenu} />
         )}
+        {activeSection === 'analytics' && <Analytics />}
       </div>
     </div>
   );
@@ -121,7 +129,7 @@ function WorkstationsSection({ endpoints = [] }) {
         setError(null);
       } catch (err) {
         console.error('[Workstations] Failed to load workstations:', err);
-        setError('Αποτυχία φόρτωσης σημείων');
+        setError('Αποτυχία φόρτωσης πόστων');
       } finally {
         setLoading(false);
       }
@@ -174,10 +182,10 @@ function WorkstationsSection({ endpoints = [] }) {
       setNewWorkstationData({ name: '', slug: '', color: '#667eea' });
       await loadWorkstations();
       setShowCreateModal(false);
-      setSuccessMessage(`Σημείο "${newWorkstation.name}" δημιουργήθηκε με επιτυχία`);
+      setSuccessMessage(`Πόστο "${newWorkstation.name}" δημιουργήθηκε με επιτυχία`);
     } catch (err) {
       console.error('[Workstations] Failed to create workstation:', err);
-      setCreateError(err.detail || err.message || 'Αποτυχία δημιουργίας σημείου');
+      setCreateError(err.detail || err.message || 'Αποτυχία δημιουργίας πόστου');
     } finally {
       setIsSubmitting(false);
     }
@@ -198,7 +206,7 @@ function WorkstationsSection({ endpoints = [] }) {
         color: editingData.color,
       });
       await loadWorkstations();
-      setSuccessMessage('Σημείο ενημερώθηκε επιτυχώς');
+      setSuccessMessage('Το πόστο ενημερώθηκε επιτυχώς');
       setEditingWorkstationId(null);
     } catch (err) {
       console.error('[Workstations] Failed to update:', err);
@@ -222,7 +230,7 @@ function WorkstationsSection({ endpoints = [] }) {
       });
       await loadWorkstations();
       const action = updatedWorkstation.active ? 'ενεργοποιήθηκε' : 'απενεργοποιήθηκε';
-      setSuccessMessage(`Σημείο "${workstation.name}" ${action}`);
+      setSuccessMessage(`Το πόστο "${workstation.name}" ${action}`);
     } catch (err) {
       console.error('[Workstations] Failed to toggle active:', err);
       setError(err.detail || err.message || 'Αποτυχία ενημέρωσης');
@@ -234,7 +242,7 @@ function WorkstationsSection({ endpoints = [] }) {
   const handleDeleteWorkstation = async (workstation) => {
     if (
       !confirm(
-        `Είστε σίγουροι ότι θέλετε να διαγράψετε το σημείο "${workstation.name}"; Τα στοιχεία που χρησιμοποιούν αυτή την κατηγορία θα πρέπει να ανατεθούν ξανά.`
+        `Είστε σίγουροι ότι θέλετε να διαγράψετε το πόστο "${workstation.name}"; Τα στοιχεία που χρησιμοποιούν αυτή την κατηγορία θα πρέπει να ανατεθούν ξανά.`
       )
     ) {
       return;
@@ -245,7 +253,7 @@ function WorkstationsSection({ endpoints = [] }) {
       setError(null);
       await deleteWorkstation(workstation.id);
       await loadWorkstations();
-      setSuccessMessage(`Σημείο "${workstation.name}" διαγράφηκε`);
+      setSuccessMessage(`Το πόστο "${workstation.name}" διαγράφηκε`);
     } catch (err) {
       console.error('[Workstations] Failed to delete workstation:', err);
       setError(err.detail || err.message || 'Αποτυχία διαγραφής');
@@ -257,7 +265,7 @@ function WorkstationsSection({ endpoints = [] }) {
   return (
     <div className="section">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-        <h2>Διαχείριση Σημείων Εξυπηρέτησης</h2>
+        <h2>Διαχείριση Πόστων</h2>
         <button
           className="btn btn-primary"
           onClick={() => setShowCreateModal(true)}
@@ -271,9 +279,9 @@ function WorkstationsSection({ endpoints = [] }) {
       {successMessage && <div className="alert alert-success">{successMessage}</div>}
 
       {loading ? (
-        <p className="info-text">Φόρτωση σημείων...</p>
+        <p className="info-text">Φόρτωση πόστων...</p>
       ) : workstations.length === 0 ? (
-        <p className="info-text">Δεν βρέθηκαν σημεία εξυπηρέτησης.</p>
+        <p className="info-text">Δεν βρέθηκαν πόστα.</p>
       ) : (
         <div className="endpoint-list">
           {workstations.map((workstation) => (
@@ -379,7 +387,7 @@ function WorkstationsSection({ endpoints = [] }) {
         <div className="modal-overlay" onClick={() => setShowCreateModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>Προσθήκη Νέου Σημείου</h2>
+              <h2>Προσθήκη Νέου Πόστου</h2>
               <button
                 className="close-btn"
                 onClick={() => setShowCreateModal(false)}
@@ -470,9 +478,9 @@ function WorkstationsSection({ endpoints = [] }) {
 function EndpointsSection({ endpoints = [], addEndpoint, deleteEndpoint }) {
   return (
     <div className="section">
-      <h2>Διαχείριση Σημείων Εξυπηρέτησης</h2>
+      <h2>Διαχείριση Πόστων</h2>
       {endpoints.length === 0 ? (
-        <p className="info-text">Δεν υπάρχουν σημεία εξυπηρέτησης. Η διαχείριση σημείων θα προστεθεί σύντομα.</p>
+        <p className="info-text">Δεν υπάρχουν πόστα. Η διαχείριση πόστων θα προστεθεί σύντομα.</p>
       ) : (
         <div className="endpoint-list">
           {endpoints.map((endpoint) => (
@@ -496,7 +504,7 @@ function EndpointsSection({ endpoints = [], addEndpoint, deleteEndpoint }) {
         </div>
       )}
       <p className="info-text" style={{marginTop: '20px'}}>
-        Η δημιουργία νέων σημείων θα προστεθεί σύντομα.
+        Η δημιουργία νέων πόστων θα προστεθεί σύντομα.
       </p>
     </div>
   );

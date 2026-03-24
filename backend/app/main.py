@@ -22,6 +22,7 @@ from app.api.auth_router import router as auth_router
 from app.api.users_router import router as users_router
 from app.api.workstations_router import router as workstations_router
 from app.api.restaurant_router import router as restaurant_router
+from app.api.analytics_router import router as analytics_router
 from app.db.dependencies import get_db_session
 from app.db.models import NLPTrainingSample
 from app.db import order_utils  # Helper functions for normalized Order/OrderItem domain
@@ -113,6 +114,8 @@ app.include_router(users_router)
 app.include_router(workstations_router)
 # Wire in the restaurant profile router
 app.include_router(restaurant_router)
+# Wire in the analytics router
+app.include_router(analytics_router)
 
 
 # ---------- Startup and Shutdown Events ----------

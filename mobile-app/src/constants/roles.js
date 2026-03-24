@@ -17,7 +17,7 @@ export function buildStationRoles(workstations = []) {
     .filter((ws) => ws.slug && ws.slug !== 'waiter')
     .map((ws) => ({
       value: `station_${ws.slug}`,
-      label: `Σταθμός ${ws.name}`,
+      label: `Πόστο ${ws.name}`,
       stationSlug: ws.slug,
     }));
 }
